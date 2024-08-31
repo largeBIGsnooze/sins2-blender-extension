@@ -265,7 +265,10 @@ class SINSII_PT_Check_For_Updates(bpy.types.Operator):
                 else:
                     shutil.copy(os.path.join(temp_path, file), CWD_PATH)
             shutil.rmtree(temp_path)
-            self.report({"INFO"}, "Extension updated succesfully.")
+            self.report(
+                {"INFO"},
+                "Extension updated succesfully, restart blender for it take effect.",
+            )
         return {"FINISHED"}
 
 
