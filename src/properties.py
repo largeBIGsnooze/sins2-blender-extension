@@ -22,6 +22,10 @@ class Properties(bpy.types.PropertyGroup):
         update=toggle_normal_orientation,
     )
 
+    enable_experimental_features: bpy.props.BoolProperty(
+        name="Experimental features", default=False
+    )
+
 
 def register():
     bpy.utils.register_class(Properties)

@@ -1,8 +1,10 @@
 import bpy, json, os, math, subprocess, re, shutil
-from bpy_extras.io_utils import ExportHelper
+from struct import unpack
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
 from .src.lib.helpers.material import MeshMaterial
 from . import bl_info
+import bmesh
 from .src.lib.github import Github_Downloader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
 
@@ -30,15 +32,21 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         col = self.layout.column(align=True)
         col.separator(factor=0.5)
         col.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
-        col.separator(factor=1.5)
-        col.operator("sinsii.export_spatial", icon="META_BALL")
+        # col.separator(factor=1.5)
+        # col.operator("sinsii.debug")
         col.separator(factor=1.5)
         box = col.box()
         box.label(text="Ensure the orientation is red")
         box.prop(context.scene.mesh_properties, "check_normals_orientation")
         box.operator("sinsii.flip_normals")
         col.separator(factor=1.5)
-        col.operator("sinsii.debug")
+        col.label(text="Miscellaneous")
+        col.operator("sinsii.export_spatial", icon="META_BALL")
+        col.separator(factor=1.5)
+        col.prop(context.scene.mesh_properties, "enable_experimental_features")
+        if context.scene.mesh_properties.enable_experimental_features == True:
+            col.separator(factor=1.5)
+            col.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
 
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -49,7 +57,7 @@ class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     def draw(self, context):
         col = self.layout.column(align=True)
         mesh = get_selected_mesh()
-        if not mesh:
+        if not mesh or mesh is None:
             col.label(text="Select a mesh...")
         else:
             col.label(text=f"Selected: {mesh.name}")
@@ -156,9 +164,13 @@ class SINSII_PT_Generate_Buffs(bpy.types.Operator):
                 if not has_center:
                     create_empty(mesh, radius, "center", (0, 0, 0), "PLAIN_AXES")
                 if not has_above:
-                    create_empty(mesh, radius, "above", (0, 0, radius), "PLAIN_AXES")
+                    create_empty(
+                        mesh, radius, "above", (0, 0, radius * 0.25), "PLAIN_AXES"
+                    )
                 if not has_aura:
-                    create_empty(mesh, radius, "aura", (0, 0, -radius), "PLAIN_AXES")
+                    create_empty(
+                        mesh, radius, "aura", (0, 0, -radius * 0.25), "PLAIN_AXES"
+                    )
         else:
             self.report({"WARNING"}, "Select the mesh before generating buffs")
 
@@ -231,12 +243,138 @@ class SINSII_PT_Spawn_Meshpoint(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def get_mesh_data(file_path):
+    with open(file_path, "rb") as f:
+        mesh = f.read()
+
+    mesh_data = {
+        x: [] for x in ["vertices", "indices", "primitives", "materials", "meshpoints"]
+    }
+
+    #  _____ _____ _   _  _____     _____
+    # /  ___|_   _| \ | |/  ___|   / __  \
+    # \ `--.  | | |  \| |\ `--.    `' / /'
+    #  `--. \ | | | . ` | `--. \     / /
+    # /\__/ /_| |_| |\  |/\__/ /   ./ /___
+    # \____/ \___/\_| \_/\____/    \_____/
+
+    # simple binary reader
+    offset = 0
+    offset += 4  # header / magic
+    offset += 1  # is_skinned
+    offset += 24  # bounding_box
+    offset += 16  # bounding_sphere
+    offset += 8  # skinned_vertices, update when becomes used
+    vertices = unpack("I", mesh[offset : offset + 4])[0]  # nonskinned_vertices
+    offset += 8  # skip past padding
+
+    for i in range(vertices):
+        pos = unpack("fff", mesh[offset : offset + 12])  # pos = (x, y, z)
+        offset += 12
+        normals = unpack("fff", mesh[offset : offset + 12])  # normals = (x, y, z)
+        offset += 12
+        tangents = unpack("ffff", mesh[offset : offset + 16])  # tangents = (x, y, z, w)
+        offset += 16
+        uv0 = unpack("ff", mesh[offset : offset + 8])  # uv0 = (x, y)
+        offset += 8
+        offset += 1  # padding
+        # uv1?
+
+        mesh_data["vertices"].append(
+            {
+                "p": {"x": pos[0], "y": pos[1], "z": pos[2]},
+                "n": {"x": normals[0], "y": normals[1], "z": normals[2]},
+                "t": {
+                    "x": tangents[0],
+                    "y": tangents[1],
+                    "z": tangents[2],
+                    "w": tangents[3],
+                },
+                "uv0": {
+                    "x": uv0[0],
+                    "y": uv0[1],
+                },
+            }
+        )
+
+    indices = unpack("I", mesh[offset : offset + 4])[0]
+    offset += 8  # skip padding
+
+    for i in range(indices):
+        mesh_data["indices"].append(unpack("i", mesh[offset : offset + 4])[0])
+        offset += 4
+
+    primitives = unpack("I", mesh[offset : offset + 4])[0]
+    offset += 8
+
+    for i in range(primitives):
+        mat_idx = mesh[offset : offset + 2]
+        offset += 2
+        start = mesh[offset : offset + 4]
+        offset += 4
+        end = mesh[offset : offset + 4]
+        offset += 4
+        mesh_data["primitives"].append(
+            {
+                "material_index": unpack("h", mat_idx)[0],
+                "vertex_index_start": unpack("i", start)[0],
+                "vertex_index_count": unpack("i", end)[0],
+            }
+        )
+
+    meshpoints = unpack("I", mesh[offset : offset + 4])[0]
+    offset += 8  # skip padding
+
+    for i in range(meshpoints):
+        len = unpack("I", mesh[offset : offset + 4])[0]
+        offset += 4
+        meshpoint_name = unpack(f"{len}s", mesh[offset : offset + len])[0].decode(
+            "utf-8"
+        )
+        offset += len
+        pos = unpack("fff", mesh[offset : offset + 12])
+        offset += 12
+        rotation = unpack("fffffffff", mesh[offset : offset + 36])
+        offset += 36
+        bone_index = unpack("h", mesh[offset : offset + 2])[0]
+        offset += 2
+        mesh_data["meshpoints"].append(
+            {
+                "name": meshpoint_name,
+                "position": {
+                    "x": pos[0],
+                    "y": pos[1],
+                    "z": pos[2],
+                },
+                "rotation": tuple((rotation)),
+                "bone_index": bone_index,
+            }
+        )
+
+    # not used, for now
+    bones = unpack("I", mesh[offset : offset + 4])[0]
+    offset += 8
+
+    materials = unpack("I", mesh[offset : offset + 4])[0]
+    offset += 8
+
+    for i in range(materials):
+        len = unpack("I", mesh[offset : offset + 4])[0]
+        offset += 4
+        material_name = unpack(f"{len}s", mesh[offset : offset + len])[0].decode(
+            "utf-8"
+        )
+        offset += len
+        mesh_data["materials"].append(material_name)
+
+    return mesh_data
+
+
 # class SINSII_PT_Debug(bpy.types.Operator):
 #     bl_idname = "sinsii.debug"
 #     bl_label = "Debug"
 
 #     def execute(self, context):
-#         print(CWD_PATH)
 #         return {"FINISHED"}
 
 
@@ -275,7 +413,7 @@ class SINSII_PT_Check_For_Updates(bpy.types.Operator):
 def create_empty(mesh, radius, name, location, empty_type):
     bpy.ops.object.empty_add(type=empty_type)
     empty = bpy.context.object
-    empty.empty_display_size = radius / 5
+    empty.empty_display_size = radius * 0.05
     empty.name = name
     empty.location = location
     empty.parent = mesh
@@ -366,25 +504,37 @@ def get_materials(mesh):
         return materials
 
 
-def move_and_rename_materials(path):
-    for material in os.listdir(path):
-        if ".mesh_material" not in material:
+def move_textures(path):
+    for texture in os.listdir(path):
+        if not ".png" in texture:
             continue
-        material_name = sanitize(material).split(".mesh_material")[0]
-        with open(os.path.join(path, material), "w") as f:
-            mesh_material = MeshMaterial(
-                clr=f"{material_name}_clr",
-                nrm=f"{material_name}_nrm",
-                msk=f"{material_name}_msk",
-                orm=f"{material_name}_orm",
-            ).json()
-            f.write(json.dumps(mesh_material, indent=4))
         dest = (
-            normalize(path, "../mesh_materials")
-            if os.path.exists(normalize(path, "../mesh_materials"))
+            normalize(path, "../textures")
+            if os.path.exists(normalize(path, "../textures"))
             else path
         )
-        rename(path=path, dest=dest, filename=material)
+        rename(path=path, dest=dest, filename=texture)
+
+
+def create_and_move_mesh_materials(file_path, mesh):
+    # create new ones
+    for material in mesh.data.materials:
+        material_name = f"{material.name}.mesh_material"
+        with open(os.path.join(file_path, material_name), "w") as f:
+            mesh_material = MeshMaterial(
+                clr=f"{material.name}_clr",
+                nrm=f"{material.name}_nrm",
+                msk=f"{material.name}_msk",
+                orm=f"{material.name}_orm",
+            ).json()
+            f.write(json.dumps(mesh_material, indent=4))
+            f.close()
+        dest = (
+            normalize(file_path, "../mesh_materials")
+            if os.path.exists(normalize(file_path, "../mesh_materials"))
+            else file_path
+        )
+        rename(path=file_path, dest=dest, filename=material_name)
 
 
 def apply_meshpoint_transforms(mesh):
@@ -404,32 +554,29 @@ def restore_meshpoint_transforms(children, original):
             empty.matrix_local = original[i]
 
 
-def pre_export_operations(mesh_json):
-    sanitize_materials(materials=mesh_json["materials"])
+def pre_export_operations(mesh_json, mesh):
+    sanitize_materials(mesh_json=mesh_json["materials"], materials=mesh.data.materials)
     sanitize_meshpoint_duplicates(meshpoints=mesh_json["points"])
 
 
-def export_mesh(self, mesh_json, directory):
-    with open(f"{self.filepath}.mesh_json", "w") as f:
+def export_mesh(self, mesh, mesh_json, export_dir, mesh_name):
+    with open(os.path.join(export_dir, f"{mesh_name}.mesh_json"), "w") as f:
         f.write(json.dumps(mesh_json))
-        f.close()
-        run_meshbuilder(
-            self,
-            file_path=f"{self.filepath}.mesh_json",
-            dest_path=directory,
-            dest_format="binary",
-        )
-        clear_leftovers(self.filepath)
-        move_and_rename_materials(directory)
+
+    run_meshbuilder(
+        self,
+        file_path=os.path.join(export_dir, f"{mesh_name}.mesh_json"),
+        dest_path=export_dir,
+        dest_format="binary",
+    )
+    clear_leftovers(export_dir, mesh_name)
+    create_and_move_mesh_materials(export_dir, mesh)
+    move_textures(export_dir)
 
 
-def sanitize(name):
-    return re.sub("^[^_]*_", "", name)
-
-
-def sanitize_materials(materials):
+def sanitize_materials(mesh_json, materials):
     for idx, material in enumerate(materials):
-        materials[idx] = sanitize(material)
+        mesh_json[idx] = material.name
 
 
 def sanitize_meshpoint_duplicates(meshpoints):
@@ -437,15 +584,17 @@ def sanitize_meshpoint_duplicates(meshpoints):
         meshpoint["name"] = re.sub("\\b\-\d+\\b", "", meshpoint["name"])
 
 
-def clear_leftovers(filepath):
-    trash = os.path.splitext(filepath)[0].lower()
-    for ext in [".gltf", ".bin", ".mesh_json"]:
-        if not os.path.exists(f"{trash}{ext}"):
-            return
-        try:
-            os.remove(f"{trash}{ext}")
-        except:
-            raise Exception(f"Could not remove {trash}{ext}")
+def clear_leftovers(export_dir, mesh_name):
+    for leftover in os.listdir(export_dir):
+        if any(
+            e
+            for e in [".mesh_material", ".bin", ".gltf", ".mesh_json"]
+            if leftover.endswith(e)
+        ):
+            try:
+                os.remove(os.path.join(export_dir, leftover))
+            except:
+                raise Exception(f"Could not remove: {leftover}")
 
 
 def normalize(file_path, args):
@@ -453,7 +602,118 @@ def normalize(file_path, args):
 
 
 def rename(path, dest, filename):
-    os.replace(os.path.join(path, filename), os.path.join(dest, sanitize(filename)))
+    os.replace(os.path.join(path, filename), os.path.join(dest, filename))
+
+
+class SINSII_PT_Import_Mesh(bpy.types.Operator, ImportHelper):
+    bl_idname = "sinsii.import_mesh"
+    bl_label = "Import mesh"
+    bl_description = "You might encounter normal issues on certain models"
+    bl_options = {"REGISTER"}
+
+    filename_ext = ".mesh"
+
+    filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
+
+    def execute(self, context):
+        mesh_name = self.filepath.rsplit("\\", 1)[1].split(".mesh")[0]
+        mesh = bpy.data.meshes.new(name=mesh_name)
+        try:
+            mesh_data = get_mesh_data(self.filepath)
+        except:
+            self.report({"ERROR"}, "Mesh import failed.")
+            return {"CANCELLED"}
+
+        primitives = mesh_data["primitives"]
+        materials = mesh_data["materials"]
+        meshpoints = mesh_data["meshpoints"]
+
+        vert_arr, normal_arr, uv_coords = [], [], []
+
+        for vertex in mesh_data["vertices"]:
+            p = tuple(
+                GAME_MATRIX
+                @ Vector([vertex["p"]["x"], vertex["p"]["y"], -vertex["p"]["z"]])
+            )
+            vert_arr.append(p)
+
+            n = tuple(
+                GAME_MATRIX
+                @ Vector([vertex["n"]["x"], vertex["n"]["y"], -vertex["n"]["z"]])
+            )
+            normal_arr.append(n)
+
+            uv = [vertex["uv0"]["x"], 1 - vertex["uv0"]["y"]]
+            uv_coords.append(uv)
+
+        for i in range(2):
+            mesh.uv_layers.new(name=f"uv{i}")
+
+        indices = mesh_data["indices"]
+        loops = [indices[i : i + 3] for i in range(0, len(indices), 3)]
+
+        mesh.from_pydata(vert_arr, [], loops)
+        mesh.update()
+
+        obj = bpy.data.objects.new(name=mesh_name, object_data=mesh)
+        scene = bpy.context.scene
+        scene.collection.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+
+        # for uv_set in bm.loops.layers.uv:
+        for face in bm.faces:
+            for loop in face.loops:
+                loop[bm.loops.layers.uv["uv0"]].uv = uv_coords[loop.vert.index]
+
+        bm.to_mesh(mesh)
+        bm.free()
+
+        for material in materials:
+            new_mat = bpy.data.materials.new(name=material)
+            mesh.materials.append(new_mat)
+
+        for primitive in primitives:
+            mat_idx = primitive["material_index"]
+            start = primitive["vertex_index_start"]
+            count = primitive["vertex_index_count"]
+            end = start + count
+            for i in range(start // 3, end // 3):
+                mesh.polygons[i].material_index = mat_idx
+
+        mesh.update()
+        mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+        mesh.normals_split_custom_set_from_vertices(normal_arr)
+
+        radius = get_bounding_box(obj)[0]
+
+        for meshpoint in meshpoints:
+            name = meshpoint["name"]
+            pos = meshpoint["position"]
+            rot = meshpoint["rotation"]
+
+            bpy.ops.object.empty_add(type="ARROWS")
+            empty = bpy.context.object
+            empty.empty_display_size = radius * 0.05
+            empty.name = name
+            empty.location = GAME_MATRIX @ Vector((pos["x"], pos["y"], -pos["z"]))
+            empty.parent = obj
+            empty.rotation_euler = (
+                GAME_MATRIX.transposed()
+                @ Matrix(
+                    (
+                        (rot[0], rot[1], rot[2]),
+                        (rot[3], rot[4], rot[5]),
+                        (rot[6], rot[7], rot[8]),
+                    )
+                ).to_4x4()
+                @ MESHPOINT_MATRIX
+            ).to_euler()
+
+        return {"FINISHED"}
 
 
 class SINSII_PT_Export_Mesh(bpy.types.Operator, ExportHelper):
@@ -478,62 +738,75 @@ class SINSII_PT_Export_Mesh(bpy.types.Operator, ExportHelper):
 
         mesh = get_selected_mesh()
 
-        if not mesh or not mesh.type == "MESH":
-            self.report({"WARNING"}, "You need to select a mesh before exporting")
-            return {"CANCELLED"}
-        if not bpy.context.mode == "OBJECT":
-            self.report({"WARNING"}, "Please enter into Object Mode before exporting")
-            return {"CANCELLED"}
+        try:
+            if not mesh or not mesh.type == "MESH":
+                self.report({"WARNING"}, "You need to select a mesh before exporting")
+                return {"CANCELLED"}
+            if not bpy.context.mode == "OBJECT":
+                self.report(
+                    {"WARNING"}, "Please enter into Object Mode before exporting"
+                )
+                return {"CANCELLED"}
 
-        materials = get_materials(mesh)
+            materials = get_materials(mesh)
 
-        if type(materials) is str:
-            self.report(
-                {"ERROR"}, 'Cannot export "{0}" without any materials'.format(materials)
+            if type(materials) is str:
+                self.report(
+                    {"ERROR"},
+                    'Cannot export "{0}" without any materials'.format(materials),
+                )
+                return {"CANCELLED"}
+
+            if mesh.children and len(mesh.children) >= 1:
+                for child in mesh.children:
+                    child.select_set(True)
+
+            original_transform = mesh.matrix_world.copy()
+
+            mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
+
+            original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
+
+            if "-" in MESH_NAME:
+                MESH_NAME = MESH_NAME.replace("-", "_")
+
+            bpy.ops.export_scene.gltf(
+                filepath=os.path.join(EXPORT_DIR, MESH_NAME),
+                use_selection=self.export_selected,
+                export_format="GLTF_SEPARATE",
+                export_yup=False,
             )
+
+            mesh.matrix_world = original_transform
+
+            run_meshbuilder(
+                self,
+                file_path=os.path.join(EXPORT_DIR, f"{MESH_NAME}.gltf"),
+                dest_path=EXPORT_DIR,
+                dest_format="json",
+            )
+
+            mesh_json = json.load(
+                open(os.path.join(EXPORT_DIR, f"{MESH_NAME}.mesh_json"), "r")
+            )
+
+            restore_meshpoint_transforms(
+                children=mesh.children, original=original_meshpoint_transforms
+            )
+
+            pre_export_operations(mesh_json, mesh)
+            export_mesh(self, mesh, mesh_json, EXPORT_DIR, MESH_NAME)
+
+            self.report({"INFO"}, f"Mesh exported successfully to: {self.filepath}")
+        except:
+            self.report({"ERROR"}, f"Could not export the model, check the mesh name")
             return {"CANCELLED"}
-
-        if mesh.children and len(mesh.children) >= 1:
-            for child in mesh.children:
-                child.select_set(True)
-
-        original_transform = mesh.matrix_world.copy()
-
-        mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
-
-        original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
-
-        bpy.ops.export_scene.gltf(
-            filepath=self.filepath,
-            use_selection=self.export_selected,
-            export_format="GLTF_SEPARATE",
-            export_yup=False,
-        )
-
-        mesh.matrix_world = original_transform
-
-        run_meshbuilder(
-            self,
-            file_path=f"{self.filepath}.gltf",
-            dest_path=EXPORT_DIR,
-            dest_format="json",
-        )
-
-        mesh_json = json.load(open(f"{self.filepath}.mesh_json", "r"))
-
-        restore_meshpoint_transforms(
-            children=mesh.children, original=original_meshpoint_transforms
-        )
-
-        pre_export_operations(mesh_json)
-        export_mesh(self, mesh_json, EXPORT_DIR)
-
-        self.report({"INFO"}, f"Mesh exported successfully to: {self.filepath}")
 
         return {"FINISHED"}
 
 
 classes = (
+    SINSII_PT_Import_Mesh,
     SINSII_PT_Export_Mesh,
     SINSII_PT_Panel,
     # SINSII_PT_Debug,
