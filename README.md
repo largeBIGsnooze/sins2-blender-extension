@@ -1,5 +1,9 @@
 ## Blender Extension - Sins of a Solar Empire 2
-Makes the process of exporting models to meshes faster and easier also comes with various QoL features to simplify ship rigging along with helpful documentation in the side panel
+Makes the modding workflow cozier, with various QoL features to simplify ship rigging along with helpful documentation in the side panel
+
+## Features
+- Automatically corrects blender to game coordinates (Y-up, Z-forward)
+- Import/Export to `*.mesh`
 
 ## Get started
 
@@ -15,4 +19,3 @@ Makes the process of exporting models to meshes faster and easier also comes wit
 - Stardock and Ironclad for `Meshbuilder.exe` from their modding tools repository
 
 https://github.com/IroncladGames/tools
-
