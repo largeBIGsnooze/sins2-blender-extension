@@ -33,8 +33,8 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         col = self.layout.column(align=True)
         col.separator(factor=0.5)
         col.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
-        col.separator(factor=1.5)
-        col.operator("sinsii.debug")
+        # col.separator(factor=1.5)
+        # col.operator("sinsii.debug")
         col.separator(factor=1.5)
         box = col.box()
         box.label(text="Ensure the orientation is red")
@@ -258,10 +258,6 @@ class SINSII_OT_Debug(bpy.types.Operator):
     bl_label = "Debug"
 
     def execute(self, context):
-        mesh = get_selected_mesh()
-
-        scale = mesh.scale
-
         return {"FINISHED"}
 
 
