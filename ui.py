@@ -31,6 +31,7 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True)
+        col.label(text="Spawn a Monkey Mesh if you're unsure of sins 2 orientation")
         col.separator(factor=0.5)
         col.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
         # col.separator(factor=1.5)
@@ -140,7 +141,7 @@ class SINSII_OT_Flip_Normals(bpy.types.Operator):
 
 
 class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Documentation"
+    bl_label = "Help"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 5
 
