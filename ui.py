@@ -301,7 +301,7 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             current_files = set(get_file_list(CWD_PATH))
             temp_files = set(get_file_list(temp_path))
 
-            for file in temp_files.difference(current_files):
+            for file in current_files.difference(temp_files):
                 file_path = os.path.join(CWD_PATH, file)
                 if os.path.isdir(file_path):
                     shutil.rmtree(file_path)
