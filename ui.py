@@ -429,17 +429,15 @@ def create_and_move_mesh_materials(file_path, mesh):
     materials = get_materials(mesh)
     unused_mats = get_unused_materials(mesh, materials)
     # create new ones
-    for material in (e for e in mesh.data.materials if e is not None):
+    for material in (material for material in materials if material not in unused_mats):
         # skip unused material
-        if material.name in unused_mats:
-            continue
-        material_name = f"{material.name}.mesh_material"
+        material_name = f"{material}.mesh_material"
         with open(os.path.join(file_path, material_name), "w") as f:
             mesh_material = MeshMaterial(
-                clr=f"{material.name}_clr",
-                nrm=f"{material.name}_nrm",
-                msk=f"{material.name}_msk",
-                orm=f"{material.name}_orm",
+                clr=f"{material}_clr",
+                nrm=f"{material}_nrm",
+                msk=f"{material}_msk",
+                orm=f"{material}_orm",
             ).json()
             f.write(json.dumps(mesh_material, indent=4))
             f.close()
@@ -735,9 +733,10 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     material_bytes = bytearray(new_buffer[:curr_mat_offset])
 
     # consume prefixes
-    for material in sorted(
-        [material.name for material in mesh.data.materials if material is not None]
-    ):
+    materials = get_materials(mesh)
+    unused_mats = get_unused_materials(mesh, materials)
+
+    for material in sorted(material for material in materials if material not in unused_mats):
         mat_length_offset = curr_mat_offset
         old_name_length = reader.u32_at_offset(mat_length_offset)
 
