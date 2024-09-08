@@ -262,11 +262,11 @@ def get_file_list(directory):
         for name in dirname:
             if ".git" in name or "__pycache__" in name:
                 continue
-            files.append(os.path.abspath(os.path.join(dirpath, name)))
+            files.append(os.path.relpath(os.path.join(dirpath, name), directory))
         for name in filenames:
             if "pyc" in name:
                 continue
-            files.append(os.path.abspath(os.path.join(dirpath, name)))
+            files.append(os.path.relpath(os.path.join(dirpath, name), directory))
     return files
 
 
@@ -302,10 +302,11 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             temp_files = set(get_file_list(temp_path))
 
             for file in temp_files.difference(current_files):
-                if os.path.isdir(file):
-                    shutil.rmtree(file)
+                file_path = os.path.join(CWD_PATH, file)
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
                 else:
-                    os.remove(file)
+                    os.remove(file_path)
 
             os.makedirs(os.path.join(CWD_PATH, "src"), exist_ok=True)
             for file in os.listdir(temp_path):
