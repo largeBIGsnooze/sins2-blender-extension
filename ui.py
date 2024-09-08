@@ -701,11 +701,11 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
             material_bytes = bytearray(new_buffer[:curr_mat_offset])
 
             # consume prefixes
-            for material in mesh.data.materials:
+            for material in sorted([material.name for material in mesh.data.materials]):
                 mat_length_offset = curr_mat_offset
                 old_name_length = reader.u32_at_offset(mat_length_offset)
 
-                material_name = material.name.encode("utf-8")
+                material_name = material.encode("utf-8")
 
                 material_bytes.extend(pack("I", len(material_name)))
                 material_bytes.extend(material_name)
