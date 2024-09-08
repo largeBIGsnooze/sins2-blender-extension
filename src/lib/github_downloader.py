@@ -15,13 +15,14 @@ class Github_Downloader:
         self.repo = "sins2-blender-extension"
         self.zipball = "archive/refs/heads/master.zip"
         self.dist = dist
-        self.temp = os.path.join(self.dist, "temp")
+        self.temp = os.path.join(self.dist, "sins2_extension-temp")
 
     @staticmethod
     def initialize(dist):
         g = Github_Downloader(dist)
         zip_file = os.path.join(g.temp, "master.zip")
         g.fetch_latest_archive(zip_file)
+        return g
 
     def fetch_latest_archive(self, zip_file):
         url = f"{self.url}/{self.author}/{self.repo}/{self.zipball}"

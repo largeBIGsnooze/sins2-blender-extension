@@ -4,7 +4,7 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
 from .src.lib.helpers.material import MeshMaterial
 from . import bl_info
-import bmesh
+import bmesh, tempfile
 from .src.lib.github_downloader import Github_Downloader
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
@@ -254,6 +254,22 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def get_file_list(directory):
+    files = []
+    for dirpath, dirname, filenames in os.walk(directory):
+        if ".git" in dirpath:
+            continue
+        for name in dirname:
+            if ".git" in name or "__pycache__" in name:
+                continue
+            files.append(os.path.abspath(os.path.join(dirpath, name)))
+        for name in filenames:
+            if "pyc" in name:
+                continue
+            files.append(os.path.abspath(os.path.join(dirpath, name)))
+    return files
+
+
 class SINSII_OT_Debug(bpy.types.Operator):
     bl_idname = "sinsii.debug"
     bl_label = "Debug"
@@ -267,15 +283,30 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
     bl_label = "Check for updates"
 
     def execute(self, context):
-        temp_path = os.path.join(CWD_PATH, "temp")
-        curr_hash = generate_hash_from_directory(directory=CWD_PATH)
-        Github_Downloader.initialize(CWD_PATH)
-        repo_hash = generate_hash_from_directory(directory=temp_path)
+
+        temp_dir = tempfile.gettempdir()
+
+        gh = Github_Downloader.initialize(temp_dir)
+
+        curr_hash = generate_hash_from_directory(file_list=get_file_list(CWD_PATH))
+
+        temp_path = gh.temp
+
+        repo_hash = generate_hash_from_directory(file_list=get_file_list(temp_path))
 
         if curr_hash == repo_hash:
             shutil.rmtree(temp_path)
             self.report({"INFO"}, "No updates found.")
         else:
+            current_files = set(get_file_list(CWD_PATH))
+            temp_files = set(get_file_list(temp_path))
+
+            for file in temp_files.difference(current_files):
+                if os.path.isdir(file):
+                    shutil.rmtree(file)
+                else:
+                    os.remove(file)
+
             os.makedirs(os.path.join(CWD_PATH, "src"), exist_ok=True)
             for file in os.listdir(temp_path):
                 if os.path.isdir(os.path.join(temp_path, file)):
@@ -287,9 +318,10 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
                 else:
                     shutil.copy(os.path.join(temp_path, file), CWD_PATH)
             shutil.rmtree(temp_path)
+
             self.report(
                 {"INFO"},
-                "Extension updated succesfully, restart blender for it take effect.",
+                "Extension updated successfully, restart blender for it take effect.",
             )
         return {"FINISHED"}
 
@@ -395,7 +427,7 @@ def move_textures(path):
 
 def create_and_move_mesh_materials(file_path, mesh):
     # create new ones
-    for material in mesh.data.materials:
+    for material in (e for e in mesh.data.materials if e is not None):
         material_name = f"{material.name}.mesh_material"
         with open(os.path.join(file_path, material_name), "w") as f:
             mesh_material = MeshMaterial(
@@ -479,6 +511,16 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def get_unused_materials(mesh, materials):
+    for i, mat in enumerate(materials):
+        tris = []
+        for tri in mesh.data.polygons:
+            if tri.material_index == i:
+                tris.append(tri.material_index)
+        if len(tris) == 0:
+            return mat
+
+
 def import_mesh(mesh_data, mesh_name, mesh):
     primitives = mesh_data["primitives"]
     materials = mesh_data["materials"]
@@ -486,7 +528,7 @@ def import_mesh(mesh_data, mesh_name, mesh):
 
     vert_arr, normal_arr, uv_coords = [], [], {x: [] for x in ["uv0", "uv1"]}
 
-    for vertex in mesh_data["vertices"]:
+    for i, vertex in enumerate(mesh_data["vertices"]):
         p = tuple(
             GAME_MATRIX @ Vector([vertex["p"][0], vertex["p"][1], -vertex["p"][2]])
         )
@@ -503,6 +545,9 @@ def import_mesh(mesh_data, mesh_name, mesh):
         if vertex["uv1"]:
             uv1 = [vertex["uv1"][0], 1 - vertex["uv1"][1]]
             uv_coords["uv1"].append(uv1)
+        else:
+            # failsafe
+            uv_coords["uv1"].append([0, 0])
 
     for i in range(2):
         mesh.uv_layers.new(name=f"uv{i}")
@@ -605,7 +650,127 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
 
         import_mesh(reader.mesh_data, mesh_name, mesh)
 
+        self.report({"INFO"}, f"Imported: {self.filepath}")
         return {"FINISHED"}
+
+
+def export_mesh(self, mesh, mesh_name, export_dir):
+    if not mesh or not mesh.type == "MESH":
+        self.report({"WARNING"}, "You need to select a mesh before exporting")
+        return
+    if not bpy.context.mode == "OBJECT":
+        self.report({"WARNING"}, "Please enter into Object Mode before exporting")
+        return
+    if (
+        not all(vec == 1 for vec in mesh.scale)
+        or not all(vec == 0 for vec in mesh.rotation_euler)
+        or not all(vec == 0 for vec in mesh.location)
+    ):
+        self.report({"ERROR"}, "Freeze the model before exporting!")
+        return
+
+    materials = get_materials(mesh)
+    unused_materials = get_unused_materials(mesh, materials)
+    if type(materials) is str:
+        self.report(
+            {"ERROR"},
+            'Cannot export "{0}" without any materials'.format(materials),
+        )
+        return
+
+    if unused_materials is not None:
+        self.report(
+            {"ERROR"},
+            "Remove unused materials before exporting: {0}".format(unused_materials),
+        )
+        return
+
+    now = time.time()
+
+    if mesh.children and len(mesh.children) >= 1:
+        for child in mesh.children:
+            child.select_set(True)
+
+    original_transform = mesh.matrix_world.copy()
+
+    mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
+
+    original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
+
+    if "-" in mesh_name:
+        mesh_name = mesh_name.replace("-", "_")
+
+    bpy.ops.export_scene.gltf(
+        filepath=os.path.join(export_dir, mesh_name),
+        use_selection=self.export_selected,
+        export_format="GLTF_SEPARATE",
+        export_yup=False,
+    )
+
+    mesh.matrix_world = original_transform
+
+    run_meshbuilder(
+        file_path=os.path.join(export_dir, f"{mesh_name}.gltf"),
+        dest_path=export_dir,
+        dest_format="binary",
+    )
+
+    buffer = BinaryReader.open(os.path.join(export_dir, f"{mesh_name}.mesh"))
+    reader = BinaryReader.initialize_from(buffer)
+
+    curr_offset = reader.meshpoint_offset_start
+    new_buffer = bytearray(buffer)
+    for meshpoint in mesh.children:
+        name_length_offset = curr_offset
+        name_length = reader.u32_at_offset(name_length_offset)
+
+        start = 4 + name_length_offset
+        end = start + name_length
+        new_name = re.sub("\\b\-\d+\\b", "", meshpoint.name).encode("utf-8")
+        new_buffer[start:end] = pack(f"{len(meshpoint.name)}s", new_name)
+        curr_offset += 4 + name_length + 50
+
+    curr_mat_offset = reader.materials_offset_start
+    buffer_end = len(new_buffer)
+
+    material_bytes = bytearray(new_buffer[:curr_mat_offset])
+
+    # consume prefixes
+    for material in sorted(
+        [material.name for material in mesh.data.materials if material is not None]
+    ):
+        mat_length_offset = curr_mat_offset
+        old_name_length = reader.u32_at_offset(mat_length_offset)
+
+        material_name = material.encode("utf-8")
+
+        material_bytes.extend(pack("I", len(material_name)))
+        material_bytes.extend(material_name)
+
+        curr_mat_offset += 4 + old_name_length
+    material_bytes.extend(new_buffer[curr_mat_offset:buffer_end])
+
+    new_buffer = material_bytes
+
+    with open(os.path.join(export_dir, f"{mesh_name}.mesh"), "wb") as f:
+        f.write(new_buffer)
+
+    restore_meshpoint_transforms(
+        children=mesh.children, original=original_meshpoint_transforms
+    )
+
+    self.report(
+        {"INFO"},
+        "Mesh exported successfully to: {}, \n Finished in: {:.6f}s".format(
+            self.filepath, time.time() - now
+        ),
+    )
+
+
+def clear_files(export_dir, mesh_name, mesh):
+    clear_leftovers(export_dir, mesh_name)
+    create_and_move_mesh_materials(export_dir, mesh)
+    move_textures(export_dir)
 
 
 class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
@@ -628,111 +793,10 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
 
         mesh = get_selected_mesh()
         try:
-            if not all(vec == 1 for vec in mesh.scale):
-                self.report({"ERROR"}, "Freeze the model before exporting!")
-                return {"CANCELLED"}
-
-            now = time.time()
-
-            if not mesh or not mesh.type == "MESH":
-                self.report({"WARNING"}, "You need to select a mesh before exporting")
-                return {"CANCELLED"}
-            if not bpy.context.mode == "OBJECT":
-                self.report(
-                    {"WARNING"}, "Please enter into Object Mode before exporting"
-                )
-                return {"CANCELLED"}
-
-            materials = get_materials(mesh)
-
-            if type(materials) is str:
-                self.report(
-                    {"ERROR"},
-                    'Cannot export "{0}" without any materials'.format(materials),
-                )
-                return {"CANCELLED"}
-
-            if mesh.children and len(mesh.children) >= 1:
-                for child in mesh.children:
-                    child.select_set(True)
-
-            original_transform = mesh.matrix_world.copy()
-
-            mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
-
-            original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
-
-            if "-" in MESH_NAME:
-                MESH_NAME = MESH_NAME.replace("-", "_")
-
-            bpy.ops.export_scene.gltf(
-                filepath=os.path.join(EXPORT_DIR, MESH_NAME),
-                use_selection=self.export_selected,
-                export_format="GLTF_SEPARATE",
-                export_yup=False,
-            )
-
-            mesh.matrix_world = original_transform
-
-            run_meshbuilder(
-                file_path=os.path.join(EXPORT_DIR, f"{MESH_NAME}.gltf"),
-                dest_path=EXPORT_DIR,
-                dest_format="binary",
-            )
-
-            buffer = BinaryReader.open(os.path.join(EXPORT_DIR, f"{MESH_NAME}.mesh"))
-            reader = BinaryReader.initialize_from(buffer)
-
-            curr_offset = reader.meshpoint_offset_start
-            new_buffer = bytearray(buffer)
-            for meshpoint in mesh.children:
-                name_length_offset = curr_offset
-                name_length = reader.u32_at_offset(name_length_offset)
-
-                start = 4 + name_length_offset
-                end = start + name_length
-                new_name = re.sub("\\b\-\d+\\b", "", meshpoint.name).encode("utf-8")
-                new_buffer[start:end] = pack(f"{len(meshpoint.name)}s", new_name)
-                curr_offset += 4 + name_length + 50
-
-            curr_mat_offset = reader.materials_offset_start
-            buffer_end = len(new_buffer)
-
-            material_bytes = bytearray(new_buffer[:curr_mat_offset])
-
-            # consume prefixes
-            for material in sorted([material.name for material in mesh.data.materials]):
-                mat_length_offset = curr_mat_offset
-                old_name_length = reader.u32_at_offset(mat_length_offset)
-
-                material_name = material.encode("utf-8")
-
-                material_bytes.extend(pack("I", len(material_name)))
-                material_bytes.extend(material_name)
-
-                curr_mat_offset += 4 + old_name_length
-            material_bytes.extend(new_buffer[curr_mat_offset:buffer_end])
-
-            new_buffer = material_bytes
-
-            with open(os.path.join(EXPORT_DIR, f"{MESH_NAME}.mesh"), "wb") as f:
-                f.write(new_buffer)
-
-            restore_meshpoint_transforms(
-                children=mesh.children, original=original_meshpoint_transforms
-            )
-
-            clear_leftovers(EXPORT_DIR, MESH_NAME)
-            create_and_move_mesh_materials(EXPORT_DIR, mesh)
-            move_textures(EXPORT_DIR)
-
-            self.report(
-                {"INFO"},
-                "Mesh exported successfully to: {}, \n Finished in: {:.6f}s".format(
-                    self.filepath, time.time() - now
-                ),
-            )
+            export_mesh(self, mesh, MESH_NAME, EXPORT_DIR)
+            clear_files(EXPORT_DIR, MESH_NAME, mesh)
         except Exception as e:
+            clear_files(EXPORT_DIR, MESH_NAME, mesh)
             self.report({"ERROR"}, f"Could not export the model: {e}")
             return {"CANCELLED"}
 
