@@ -299,9 +299,13 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             else:
                 os.remove(file_path)
 
-        curr_hash = generate_hash_from_directory(file_list=get_file_list(CWD_PATH))
+        curr_hash = generate_hash_from_directory(
+            directory=CWD_PATH, file_list=get_file_list(CWD_PATH)
+        )
 
-        repo_hash = generate_hash_from_directory(file_list=get_file_list(temp_path))
+        repo_hash = generate_hash_from_directory(
+            directory=temp_path, file_list=get_file_list(temp_path)
+        )
 
         if curr_hash == repo_hash:
             shutil.rmtree(temp_path)
@@ -736,7 +740,9 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     materials = get_materials(mesh)
     unused_mats = get_unused_materials(mesh, materials)
 
-    for material in sorted(material for material in materials if material not in unused_mats):
+    for material in sorted(
+        material for material in materials if material not in unused_mats
+    ):
         mat_length_offset = curr_mat_offset
         old_name_length = reader.u32_at_offset(mat_length_offset)
 
