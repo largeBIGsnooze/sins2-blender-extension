@@ -427,8 +427,13 @@ def move_textures(path):
 
 
 def create_and_move_mesh_materials(file_path, mesh):
+    materials = get_materials(mesh)
+    unused_mats = get_unused_materials(mesh, materials)
     # create new ones
     for material in (e for e in mesh.data.materials if e is not None):
+        # skip unused material
+        if material.name in unused_mats:
+            continue
         material_name = f"{material.name}.mesh_material"
         with open(os.path.join(file_path, material_name), "w") as f:
             mesh_material = MeshMaterial(
@@ -513,13 +518,15 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
 
 
 def get_unused_materials(mesh, materials):
+    unused_mats = []
     for i, mat in enumerate(materials):
         tris = []
         for tri in mesh.data.polygons:
             if tri.material_index == i:
                 tris.append(tri.material_index)
         if len(tris) == 0:
-            return mat
+            unused_mats.append(mat)
+    return unused_mats
 
 
 def import_mesh(mesh_data, mesh_name, mesh):
@@ -671,18 +678,10 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         return
 
     materials = get_materials(mesh)
-    unused_materials = get_unused_materials(mesh, materials)
     if type(materials) is str:
         self.report(
             {"ERROR"},
             'Cannot export "{0}" without any materials'.format(materials),
-        )
-        return
-
-    if unused_materials is not None:
-        self.report(
-            {"ERROR"},
-            "Remove unused materials before exporting: {0}".format(unused_materials),
         )
         return
 
