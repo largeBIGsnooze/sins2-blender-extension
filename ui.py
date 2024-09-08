@@ -288,6 +288,16 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
 
         gh = Github_Downloader.initialize(temp_dir)
 
+        current_files = set(get_file_list(CWD_PATH))
+        temp_files = set(get_file_list(temp_path))
+
+        for file in current_files.difference(temp_files):
+            file_path = os.path.join(CWD_PATH, file)
+            if os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+            else:
+                os.remove(file_path)
+
         curr_hash = generate_hash_from_directory(file_list=get_file_list(CWD_PATH))
 
         temp_path = gh.temp
@@ -298,16 +308,6 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             shutil.rmtree(temp_path)
             self.report({"INFO"}, "No updates found.")
         else:
-            current_files = set(get_file_list(CWD_PATH))
-            temp_files = set(get_file_list(temp_path))
-
-            for file in current_files.difference(temp_files):
-                file_path = os.path.join(CWD_PATH, file)
-                if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-                else:
-                    os.remove(file_path)
-
             os.makedirs(os.path.join(CWD_PATH, "src"), exist_ok=True)
             for file in os.listdir(temp_path):
                 if os.path.isdir(os.path.join(temp_path, file)):
