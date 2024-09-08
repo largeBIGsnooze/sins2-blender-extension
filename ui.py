@@ -287,6 +287,7 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
         temp_dir = tempfile.gettempdir()
 
         gh = Github_Downloader.initialize(temp_dir)
+        temp_path = gh.temp
 
         current_files = set(get_file_list(CWD_PATH))
         temp_files = set(get_file_list(temp_path))
@@ -299,8 +300,6 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
                 os.remove(file_path)
 
         curr_hash = generate_hash_from_directory(file_list=get_file_list(CWD_PATH))
-
-        temp_path = gh.temp
 
         repo_hash = generate_hash_from_directory(file_list=get_file_list(temp_path))
 
