@@ -781,7 +781,7 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     unused_mats = get_unused_materials(mesh, materials)
     # consume prefixes
     for material in sorted(
-        material for material in materials if material not in unused_mats
+        material for material in set(materials) if material not in unused_mats
     ):
         mat_length_offset = curr_mat_offset
         old_name_length = reader.u32_at_offset(mat_length_offset)
