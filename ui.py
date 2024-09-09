@@ -1,10 +1,9 @@
-import bpy, json, os, math, subprocess, re, shutil, time
+import bpy, json, os, math, subprocess, re, shutil, time, bmesh, tempfile
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
 from .src.lib.helpers.material import MeshMaterial
 from . import bl_info
-import bmesh, tempfile
 from .src.lib.github_downloader import Github_Downloader
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
@@ -16,6 +15,19 @@ MESHBUILDER_EXE = os.path.join(
 
 GAME_MATRIX = Matrix(((-1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
 MESHPOINT_MATRIX = Matrix(((-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (0, 0, 0, 1)))
+
+DUPLICATION_POSTFIX = r"(\-\d+)?"
+MESHPOINTING_RULES = {
+    "ability": rf"^ability(\.\d*)?{DUPLICATION_POSTFIX}$",
+    "child": rf"^child\.(\w*)\.?(\d+)?{DUPLICATION_POSTFIX}$",
+    "weapon": rf"^weapon\.\w+(\.\d+)?{DUPLICATION_POSTFIX}$",
+    "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
+    "bomb": r"^bomb$",
+    "exhaust": r"^exhaust(\.\d*)?$",
+    "aura": r"^aura$",
+    "center": r"^center$",
+    "above": r"^above$",
+}
 
 
 class SINSII_Main_Panel:
@@ -112,7 +124,6 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
         col.label(text="Weapon")
         box = col.box()
         box.label(text="child.<turret_name>_[0-9]")
-        box.label(text="weapon.torpedo-[0-9]")
         box.label(text="weapon.[0-9]")
         box.label(text="bomb")
         col.label(text="Exhaust")
@@ -176,11 +187,11 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
                     create_empty(mesh, radius, "center", (0, 0, 0), "PLAIN_AXES")
                 if not has_above:
                     create_empty(
-                        mesh, radius, "above", (0, 0, radius * 0.25), "PLAIN_AXES"
+                        mesh, radius, "above", (0, 0, radius), "PLAIN_AXES"
                     )
                 if not has_aura:
                     create_empty(
-                        mesh, radius, "aura", (0, 0, -radius * 0.25), "PLAIN_AXES"
+                        mesh, radius, "aura", (0, 0, -radius), "PLAIN_AXES"
                     )
         else:
             self.report({"WARNING"}, "Select the mesh before generating buffs")
@@ -214,6 +225,7 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
                     unit_contents["spatial"] = {
                         "radius": radius,
                         "box": {"center": tuple((center)), "extents": tuple((extents))},
+                        "collision_rank": 1
                     }
                     f.seek(0)
                     f.write(json.dumps(unit_contents, indent=4))
@@ -245,13 +257,31 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         create_empty(
             mesh=mesh,
             radius=radius / 2,
-            name="child.empty.0",
+            name="RENAME_ME",
             empty_type="ARROWS",
             location=bpy.context.scene.cursor.location,
         )
         bpy.ops.view3d.snap_cursor_to_center()
 
         return {"FINISHED"}
+
+
+def make_meshpoint_rules(mesh):
+    invalid_meshpoints = []
+
+    for meshpoint in mesh.children:
+        name = meshpoint.name
+        is_matched = False
+
+        for key, regex in MESHPOINTING_RULES.items():
+            if re.match(regex, name):
+                is_matched = True
+                break
+
+        if not is_matched:
+            invalid_meshpoints.append(name)
+
+    return invalid_meshpoints
 
 
 def get_file_list(directory):
@@ -663,6 +693,13 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
         return {"FINISHED"}
 
 
+def original_transforms(mesh):
+    original_transform = mesh.matrix_world.copy()
+    mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
+    original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
+    return original_transform, original_meshpoint_transforms
+
+
 def export_mesh(self, mesh, mesh_name, export_dir):
     if not mesh or not mesh.type == "MESH":
         self.report({"WARNING"}, "You need to select a mesh before exporting")
@@ -675,7 +712,15 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         or not all(vec == 0 for vec in mesh.rotation_euler)
         or not all(vec == 0 for vec in mesh.location)
     ):
-        self.report({"ERROR"}, "Freeze the model before exporting!")
+        self.report({"ERROR"}, "Freeze the model before exporting")
+        return
+
+    invalid_meshpoints = make_meshpoint_rules(mesh)
+    if len(invalid_meshpoints) > 0:
+        self.report(
+            {"ERROR"},
+            f'Invalid meshpoints: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
+        )
         return
 
     materials = get_materials(mesh)
@@ -692,18 +737,14 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         for child in mesh.children:
             child.select_set(True)
 
-    original_transform = mesh.matrix_world.copy()
-
-    mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
-
-    original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
+    original_transform, original_meshpoint_transforms = original_transforms(mesh=mesh)
 
     if "-" in mesh_name:
         mesh_name = mesh_name.replace("-", "_")
 
     bpy.ops.export_scene.gltf(
         filepath=os.path.join(export_dir, mesh_name),
-        use_selection=self.export_selected,
+        use_selection=True,
         export_format="GLTF_SEPARATE",
         export_yup=False,
     )
@@ -736,10 +777,9 @@ def export_mesh(self, mesh, mesh_name, export_dir):
 
     material_bytes = bytearray(new_buffer[:curr_mat_offset])
 
-    # consume prefixes
     materials = get_materials(mesh)
     unused_mats = get_unused_materials(mesh, materials)
-
+    # consume prefixes
     for material in sorted(
         material for material in materials if material not in unused_mats
     ):
@@ -762,6 +802,8 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     restore_meshpoint_transforms(
         children=mesh.children, original=original_meshpoint_transforms
     )
+
+    clear_files(export_dir, mesh_name, mesh)
 
     self.report(
         {"INFO"},
@@ -786,10 +828,6 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
 
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
 
-    export_selected: bpy.props.BoolProperty(
-        name="Export selected", default=True, options={"HIDDEN"}
-    )
-
     def execute(self, context):
         __ = self.filepath.rsplit("\\", 1)
         EXPORT_DIR = __[0]
@@ -798,9 +836,7 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
         mesh = get_selected_mesh()
         try:
             export_mesh(self, mesh, MESH_NAME, EXPORT_DIR)
-            clear_files(EXPORT_DIR, MESH_NAME, mesh)
         except Exception as e:
-            clear_files(EXPORT_DIR, MESH_NAME, mesh)
             self.report({"ERROR"}, f"Could not export the model: {e}")
             return {"CANCELLED"}
 
