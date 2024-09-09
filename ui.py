@@ -747,6 +747,7 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         use_selection=True,
         export_format="GLTF_SEPARATE",
         export_yup=False,
+        export_apply=False
     )
 
     mesh.matrix_world = original_transform
