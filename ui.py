@@ -28,7 +28,27 @@ MESHPOINTING_RULES = {
     "center": r"^center$",
     "above": r"^above$",
     "turret_muzzle": rf"^turret_muzzle(\.\d+)?{DUPLICATION_POSTFIX}$",
-    "flair": rf"^flair(\.\w+)(\.?\d+)?{DUPLICATION_POSTFIX}$"
+    "flair": rf"^flair(\.\w+)(\.?\d+)?{DUPLICATION_POSTFIX}$",
+    "ship_build": r"^ship_build$",
+    "extractor": r"^extractor$",
+
+    # ---------------------------- from 2022  ---------------------------- #
+    # - `exhaust` // ship exhaust effects                                  #
+    # - `bomb` // planet bombing points                                    #
+    # - `above` // for effects above                                       #
+    # - `aura` // aura effects                                             #
+    # - `center` // effects from center                                    #
+    # - `extractor` // asteroid resource extractor attachment point        #
+    # - `hangar` // strikecraft hangar position                            #
+    # - `ship_build` // ship build effects                                 #
+    # - `atmosphere_entry` // atmosphere entry effects                     # <-- no references?
+    # - `build` // build effects                                           # <-- only sins 1 meshes reference this?
+    # - `flair` // flair effects                                           #
+    # - `ability` // ability effects                                       #
+    # - `weapon`                                                           #
+    # - `child`                                                            #
+    # - `turret_muzzle`                                                    #
+
 }
 
 
