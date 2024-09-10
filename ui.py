@@ -27,7 +27,8 @@ MESHPOINTING_RULES = {
     "aura": r"^aura$",
     "center": r"^center$",
     "above": r"^above$",
-    "turret_muzzle": rf"^turret_muzzle(\.\d*)?{DUPLICATION_POSTFIX}$"
+    "turret_muzzle": rf"^turret_muzzle(\.\d+)?{DUPLICATION_POSTFIX}$",
+    "flair": rf"^flair(\.\w+)(\.?\d+)?{DUPLICATION_POSTFIX}$"
 }
 
 
