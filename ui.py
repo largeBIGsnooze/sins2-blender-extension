@@ -27,6 +27,7 @@ MESHPOINTING_RULES = {
     "aura": r"^aura$",
     "center": r"^center$",
     "above": r"^above$",
+    "turret_muzzle": rf"^turret_muzzle(\.\d*)?{DUPLICATION_POSTFIX}$"
 }
 
 
@@ -99,7 +100,7 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True).box()
-        col.label(text="Meshpoints", icon="EMPTY_AXIS")
+        col.label(text="General", icon="EMPTY_AXIS")
         col.label(text="Orientation")
         col.operator(
             "wm.url_open", text="See meshpoint orientation here", icon="URL"
@@ -132,6 +133,16 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
         col.label(text="Hangar")
         box = col.box()
         box.label(text="hangar.[0-9]")
+
+        box = self.layout.box()
+        box.label(text="Turret", icon="EMPTY_AXIS")
+        col = box.column(align=True)
+        col.label(text="Mount attaching point")
+        box = col.box()
+        box.label(text="child.<mount_name>")
+        col.label(text="Barrel muzzle")
+        box = col.box()
+        box.label(text="turret_muzzle.[0-9]")
 
 
 class SINSII_OT_Flip_Normals(bpy.types.Operator):
