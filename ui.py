@@ -113,9 +113,43 @@ class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.operator("sinsii.spawn_meshpoint", icon="EMPTY_AXIS")
 
 
-class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Meshpoints"
-    bl_parent_id = "SINSII_PT_Documentation_Panel"
+class SINSII_PT_Meshpoint_Turret(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "Turret"
+    bl_parent_id = "SINSII_PT_Meshpoint_Documentation"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 7
+
+    def draw(self, context):
+        box = self.layout.box()
+        box.label(text="Turret", icon="EMPTY_AXIS")
+        col = box.column(align=True)
+        col.label(text="Mount attachment point")
+        box = col.box()
+        box.label(text="child.<mount_name>")
+        col.label(text="Barrel muzzle")
+        box = col.box()
+        box.label(text="turret_muzzle.[0-9]")
+
+class SINSII_PT_Meshpoint_Miscellaneous(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "Miscellaneous"
+    bl_parent_id = "SINSII_PT_Meshpoint_Documentation"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 8
+
+    def draw(self, context):
+        box = self.layout.box()
+        box.label(text="Miscellaneous", icon="EMPTY_AXIS")
+        col = box.column(align=True)
+        col.label(text="Ship building effects")
+        box = col.box()
+        box.label(text="ship_build")
+        col.label(text="Asteroid resource extractor attachment point")
+        box = col.box()
+        box.label(text="extractor")
+
+class SINSII_PT_Meshpoint(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "General"
+    bl_parent_id = "SINSII_PT_Meshpoint_Documentation"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 6
 
@@ -146,7 +180,7 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
         col.label(text="Weapon")
         box = col.box()
         box.label(text="child.<turret_name>_[0-9]")
-        box.label(text="weapon.[0-9]")
+        box.label(text="weapon.<weapon_name>")
         box.label(text="bomb")
         col.label(text="Exhaust")
         box = col.box()
@@ -155,15 +189,16 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
         box = col.box()
         box.label(text="hangar.[0-9]")
 
-        box = self.layout.box()
-        box.label(text="Turret", icon="EMPTY_AXIS")
-        col = box.column(align=True)
-        col.label(text="Mount attaching point")
-        box = col.box()
-        box.label(text="child.<mount_name>")
-        col.label(text="Barrel muzzle")
-        box = col.box()
-        box.label(text="turret_muzzle.[0-9]")
+
+class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "Meshpoints"
+    bl_parent_id = "SINSII_PT_Documentation_Panel"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 6
+
+    def draw(self,context):
+        col = self.layout.column(align=True)
+        col.label(text="Here you will find all your need to know about meshpointing your ship")
 
 
 class SINSII_OT_Flip_Normals(bpy.types.Operator):
@@ -893,6 +928,9 @@ classes = (
     SINSII_PT_Mesh_Panel,
     SINSII_PT_Documentation_Panel,
     SINSII_PT_Meshpoint_Documentation,
+    SINSII_PT_Meshpoint_Miscellaneous,
+    SINSII_PT_Meshpoint_Turret,
+    SINSII_PT_Meshpoint
 )
 
 
