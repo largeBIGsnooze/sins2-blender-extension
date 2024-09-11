@@ -2,7 +2,7 @@ bl_info = {
     "name": "Sins II Utility",
     "description": "Extension for exporting meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (0, 6, 6),
+    "version": (0, 6, 7),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",
