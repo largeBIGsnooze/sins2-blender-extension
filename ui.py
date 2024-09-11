@@ -507,7 +507,7 @@ def get_materials(mesh):
     if mesh.type == "MESH" and len(mesh.data.materials) != 0:
         for material in mesh.data.materials:
             if material is not None:
-                materials.append(material.name)
+                materials.append(material.name.lower())
     if len(materials) == 0:
         return mesh.name
     else:
