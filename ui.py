@@ -23,7 +23,7 @@ MESHPOINTING_RULES = {
     "weapon": rf"^weapon\.\w+(\.\d+)?{DUPLICATION_POSTFIX}$",
     "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
     "bomb": r"^bomb$",
-    "exhaust": r"^exhaust(\.\d*)?$",
+    "exhaust": rf"^exhaust(\.\d*)?{DUPLICATION_POSTFIX}$",
     "aura": r"^aura$",
     "center": r"^center$",
     "above": r"^above$",
@@ -237,6 +237,9 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
     def execute(self, context):
         has_center, has_above, has_aura = False, False, False
         mesh = get_selected_mesh()
+        if not frozen(mesh):
+            self.report({"ERROR"}, "Freeze the model before generating buffs")
+            return {"CANCELLED"}
 
         if mesh:
             radius = get_bounding_box(mesh)[0]
@@ -766,6 +769,17 @@ def original_transforms(mesh):
     original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
     return original_transform, original_meshpoint_transforms
 
+def frozen(mesh):
+    if mesh.type == 'MESH':
+        if (
+            not all(vec == 1 for vec in mesh.scale)
+            or not all(vec == 0 for vec in mesh.rotation_euler)
+            or not all(vec == 0 for vec in mesh.location)
+        ):
+            return False
+
+    return True
+
 
 def export_mesh(self, mesh, mesh_name, export_dir):
     if not mesh or not mesh.type == "MESH":
@@ -774,11 +788,7 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     if not bpy.context.mode == "OBJECT":
         self.report({"WARNING"}, "Please enter into Object Mode before exporting")
         return
-    if (
-        not all(vec == 1 for vec in mesh.scale)
-        or not all(vec == 0 for vec in mesh.rotation_euler)
-        or not all(vec == 0 for vec in mesh.location)
-    ):
+    if not frozen(mesh):
         self.report({"ERROR"}, "Freeze the model before exporting")
         return
 
