@@ -841,6 +841,8 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     curr_offset = reader.meshpoint_offset_start
     new_buffer = bytearray(buffer)
     for meshpoint in mesh.children:
+        if meshpoint.hide_get():
+            continue
         name_length_offset = curr_offset
         name_length = reader.u32_at_offset(name_length_offset)
 
