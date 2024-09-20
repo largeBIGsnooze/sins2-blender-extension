@@ -22,7 +22,7 @@ MESHPOINTING_RULES = {
     "child": rf"^child\.(\w*)\.?(\d+)?{DUPLICATION_POSTFIX}$",
     "weapon": rf"^weapon\.\w+(\.\d+)?{DUPLICATION_POSTFIX}$",
     "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
-    "bomb": r"^bomb$",
+    "bomb": rf"^bomb(\.\d*)?{DUPLICATION_POSTFIX}$",
     "exhaust": rf"^exhaust(\.\d*)?{DUPLICATION_POSTFIX}$",
     "aura": r"^aura$",
     "center": r"^center$",
@@ -237,9 +237,7 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
     def execute(self, context):
         has_center, has_above, has_aura = False, False, False
         mesh = get_selected_mesh()
-        if not frozen(mesh):
-            self.report({"ERROR"}, "Freeze the model before generating buffs")
-            return {"CANCELLED"}
+        check_freeze_transforms(mesh)
 
         if mesh:
             radius = get_bounding_box(mesh)[0]
@@ -312,6 +310,10 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+def check_freeze_transforms(mesh):
+    if not frozen(mesh):
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
 class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
     bl_idname = "sinsii.spawn_meshpoint"
     bl_label = "Spawn meshpoint"
@@ -321,6 +323,10 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
             self.report({"WARNING"}, "Make sure you are in edit mode")
             return {"CANCELLED"}
         mesh = get_selected_mesh()
+        bpy.ops.object.editmode_toggle()
+        check_freeze_transforms(mesh)
+        bpy.ops.object.editmode_toggle()
+
         radius = get_bounding_box(mesh)[0]
         bpy.ops.view3d.snap_cursor_to_selected()
         bpy.ops.object.editmode_toggle()
@@ -788,9 +794,8 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     if not bpy.context.mode == "OBJECT":
         self.report({"WARNING"}, "Please enter into Object Mode before exporting")
         return
-    if not frozen(mesh):
-        self.report({"ERROR"}, "Freeze the model before exporting")
-        return
+
+    check_freeze_transforms(mesh)
 
     invalid_meshpoints = make_meshpoint_rules(mesh)
     if len(invalid_meshpoints) > 0:
