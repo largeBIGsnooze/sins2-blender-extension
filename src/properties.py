@@ -15,6 +15,13 @@ def toggle_normal_orientation(self, context):
             break
 
 
+def reset_team_colors(self, context):
+    if context.scene.mesh_properties.enable_experimental_features == False:
+        context.scene.mesh_properties.team_color_1 = (1, 1, 1, 1)
+        context.scene.mesh_properties.team_color_2 = (1, 1, 1, 1)
+        context.scene.mesh_properties.team_color_3 = (1, 1, 1, 1)
+
+
 class Properties(bpy.types.PropertyGroup):
     check_normals_orientation: bpy.props.BoolProperty(
         name="Toggle normal orientation",
@@ -22,8 +29,28 @@ class Properties(bpy.types.PropertyGroup):
         update=toggle_normal_orientation,
     )
 
+    team_color_1: bpy.props.FloatVectorProperty(
+        name="",
+        subtype="COLOR",
+        min=0,
+        max=1,
+        size=4,
+        default=(1, 1, 1, 1),
+    )
+    team_color_2: bpy.props.FloatVectorProperty(
+        name="",
+        subtype="COLOR",
+        min=0,
+        max=1,
+        size=4,
+        default=(1, 1, 1, 1),
+    )
+    team_color_3: bpy.props.FloatVectorProperty(
+        name="", subtype="COLOR", min=0, max=1, size=4, default=(1, 1, 1, 1)
+    )
+
     enable_experimental_features: bpy.props.BoolProperty(
-        name="Experimental features", default=False
+        name="Experimental features", default=False, update=reset_team_colors
     )
 
 

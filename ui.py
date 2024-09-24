@@ -12,6 +12,10 @@ CWD_PATH = os.path.dirname(os.path.abspath(__file__))
 MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
 )
+TEXCONV_EXE = os.path.join(CWD_PATH, "src", "lib", "tools", "texconv", "texconv.exe")
+TEMP_TEXTURES_PATH = os.path.join(
+    tempfile.gettempdir(), "sins2-blender-extension_textures"
+)
 
 GAME_MATRIX = Matrix(((-1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
 MESHPOINT_MATRIX = Matrix(((-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (0, 0, 0, 1)))
@@ -22,7 +26,7 @@ MESHPOINTING_RULES = {
     "child": rf"^child\.(\w*)\.?(\d+)?{DUPLICATION_POSTFIX}$",
     "weapon": rf"^weapon\.\w+(\.\d+)?{DUPLICATION_POSTFIX}$",
     "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
-    "bomb": rf"^bomb(\.\d*)?{DUPLICATION_POSTFIX}$",
+    "bomb": rf"^bomb(\.\d+)?{DUPLICATION_POSTFIX}$",
     "exhaust": rf"^exhaust(\.\d*)?{DUPLICATION_POSTFIX}$",
     "aura": r"^aura$",
     "center": r"^center$",
@@ -31,7 +35,6 @@ MESHPOINTING_RULES = {
     "flair": rf"^flair(\.\w+)(\.?\d+)?{DUPLICATION_POSTFIX}$",
     "ship_build": r"^ship_build$",
     "extractor": r"^extractor$",
-
     # ---------------------------- from 2022  ---------------------------- #
     # - `exhaust` // ship exhaust effects                                  #
     # - `bomb` // planet bombing points                                    #
@@ -48,7 +51,6 @@ MESHPOINTING_RULES = {
     # - `weapon`                                                           #
     # - `child`                                                            #
     # - `turret_muzzle`                                                    #
-
 }
 
 
@@ -72,7 +74,7 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         # col.operator("sinsii.debug")
         col.separator(factor=1.5)
         box = col.box()
-        box.label(text="Ensure the orientation is red")
+        box.label(text="Ensure the orientation is red before exporting")
         box.prop(context.scene.mesh_properties, "check_normals_orientation")
         box.operator("sinsii.flip_normals")
         col.separator(factor=1.5)
@@ -80,6 +82,12 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         if context.scene.mesh_properties.enable_experimental_features == True:
             col.separator(factor=1.5)
             col.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
+            col.separator(factor=1.0)
+            col.label(text="Primary, Secondary, Emissive")
+            row = col.row()
+            row.prop(context.scene.mesh_properties, "team_color_1")
+            row.prop(context.scene.mesh_properties, "team_color_2")
+            row.prop(context.scene.mesh_properties, "team_color_3")
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -130,6 +138,7 @@ class SINSII_PT_Meshpoint_Turret(SINSII_Main_Panel, bpy.types.Panel):
         box = col.box()
         box.label(text="turret_muzzle.[0-9]")
 
+
 class SINSII_PT_Meshpoint_Miscellaneous(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Miscellaneous"
     bl_parent_id = "SINSII_PT_Meshpoint_Documentation"
@@ -146,6 +155,7 @@ class SINSII_PT_Meshpoint_Miscellaneous(SINSII_Main_Panel, bpy.types.Panel):
         col.label(text="Asteroid resource extractor attachment point")
         box = col.box()
         box.label(text="extractor")
+
 
 class SINSII_PT_Meshpoint(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "General"
@@ -196,9 +206,11 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 6
 
-    def draw(self,context):
+    def draw(self, context):
         col = self.layout.column(align=True)
-        col.label(text="Here you will find all your need to know about meshpointing your ship")
+        col.label(
+            text="Here you will find all your need to know about meshpointing your ship"
+        )
 
 
 class SINSII_OT_Flip_Normals(bpy.types.Operator):
@@ -254,13 +266,9 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
                 if not has_center:
                     create_empty(mesh, radius, "center", (0, 0, 0), "PLAIN_AXES")
                 if not has_above:
-                    create_empty(
-                        mesh, radius, "above", (0, 0, radius), "PLAIN_AXES"
-                    )
+                    create_empty(mesh, radius, "above", (0, 0, radius), "PLAIN_AXES")
                 if not has_aura:
-                    create_empty(
-                        mesh, radius, "aura", (0, 0, -radius), "PLAIN_AXES"
-                    )
+                    create_empty(mesh, radius, "aura", (0, 0, -radius), "PLAIN_AXES")
         else:
             self.report({"WARNING"}, "Select the mesh before generating buffs")
 
@@ -293,7 +301,7 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
                     unit_contents["spatial"] = {
                         "radius": radius,
                         "box": {"center": tuple((center)), "extents": tuple((extents))},
-                        "collision_rank": 1
+                        "collision_rank": 1,
                     }
                     f.seek(0)
                     f.write(json.dumps(unit_contents, indent=4))
@@ -313,6 +321,7 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
 def check_freeze_transforms(mesh):
     if not frozen(mesh):
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
 
 class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
     bl_idname = "sinsii.spawn_meshpoint"
@@ -431,7 +440,7 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
 
             self.report(
                 {"INFO"},
-                "Extension updated successfully, restart blender for it take effect.",
+                "Extension updated successfully, restart blender for it to take effect.",
             )
         return {"FINISHED"}
 
@@ -498,6 +507,12 @@ def get_selected_mesh():
     selected_objects = bpy.context.selected_objects
     if len(selected_objects) > 0:
         return selected_objects[0]
+
+
+def run_texconv(texture, temp_dir):
+    subprocess.run(
+        [TEXCONV_EXE, "-m", "1", "-y", "-f", "BC7_UNORM", "-r", texture, "-o", temp_dir]
+    )
 
 
 def run_meshbuilder(file_path, dest_path, dest_format):
@@ -636,7 +651,7 @@ def get_unused_materials(mesh, materials):
     return unused_mats
 
 
-def import_mesh(mesh_data, mesh_name, mesh):
+def import_mesh(self, mesh_data, mesh_name, mesh):
     primitives = mesh_data["primitives"]
     materials = mesh_data["materials"]
     meshpoints = mesh_data["meshpoints"]
@@ -650,7 +665,7 @@ def import_mesh(mesh_data, mesh_name, mesh):
         vert_arr.append(p)
 
         n = tuple(
-            GAME_MATRIX @ Vector([vertex["n"][0], vertex["n"][1], -vertex["n"][2]])
+            GAME_MATRIX @ Vector([-vertex["n"][0], -vertex["n"][1], vertex["n"][2]])
         )
         normal_arr.append(n)
 
@@ -692,7 +707,18 @@ def import_mesh(mesh_data, mesh_name, mesh):
     bm.free()
 
     for material in materials:
-        new_mat = bpy.data.materials.new(name=material)
+        mesh_materials_path = normalize(self.filepath, "../../mesh_materials")
+        textures_path = normalize(self.filepath, "../../textures")
+
+        if not os.path.exists(mesh_materials_path):
+            new_mat = bpy.data.materials.new(name=material)
+        else:
+            new_mat = create_shader_nodes(
+                material,
+                mesh_materials_path,
+                textures_path,
+                run_texconv,
+            )
         mesh.materials.append(new_mat)
 
     for primitive in primitives:
@@ -705,7 +731,7 @@ def import_mesh(mesh_data, mesh_name, mesh):
 
     mesh.update()
     mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
-    # mesh.normals_split_custom_set_from_vertices(normal_arr)
+    mesh.normals_split_custom_set_from_vertices(normal_arr)
 
     radius = get_bounding_box(obj)[0]
 
@@ -735,6 +761,10 @@ def import_mesh(mesh_data, mesh_name, mesh):
     purge_orphans()
 
 
+def clear_temp_textures():
+    for texture in os.listdir(TEMP_TEXTURES_PATH):
+        os.remove(os.path.join(TEMP_TEXTURES_PATH, texture))
+
 class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
     bl_idname = "sinsii.import_mesh"
     bl_label = "Import mesh"
@@ -746,6 +776,8 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
 
     def execute(self, context):
+        os.makedirs(TEMP_TEXTURES_PATH, exist_ok=True)
+        clear_temp_textures()
         mesh_name = self.filepath.rsplit("\\", 1)[1].split(".mesh")[0]
         mesh = bpy.data.meshes.new(name=mesh_name)
         try:
@@ -763,8 +795,7 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, f"Mesh import failed.: {e}")
             return {"CANCELLED"}
 
-        import_mesh(reader.mesh_data, mesh_name, mesh)
-
+        import_mesh(self, reader.mesh_data, mesh_name, mesh)
         self.report({"INFO"}, f"Imported: {self.filepath}")
         return {"FINISHED"}
 
@@ -775,8 +806,9 @@ def original_transforms(mesh):
     original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
     return original_transform, original_meshpoint_transforms
 
+
 def frozen(mesh):
-    if mesh.type == 'MESH':
+    if mesh.type == "MESH":
         if (
             not all(vec == 1 for vec in mesh.scale)
             or not all(vec == 0 for vec in mesh.rotation_euler)
@@ -829,7 +861,7 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         use_selection=True,
         export_format="GLTF_SEPARATE",
         export_yup=False,
-        export_apply=False
+        export_apply=False,
     )
 
     mesh.matrix_world = original_transform
@@ -930,6 +962,328 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+def set_node_position(node, x, y):
+    node.location = (x * 100, y * -100)
+
+
+def add_driver(node_id, node, name, data_path):
+    is_emissive = 2 if name == "Emissive" else 1
+    for i, driver in enumerate(
+        node_id.driver_add(
+            f'nodes["{node.name}"].color_ramp.elements[{is_emissive}].color'
+        )
+    ):
+        driver = driver.driver
+        driver.type = "SUM"
+        var = driver.variables.new()
+        var.name = name
+        var.targets[0].id_type = "SCENE"
+        var.targets[0].id = bpy.context.scene
+        var.targets[0].data_path = f"{data_path}[{i}]"
+
+
+def load_texture(node, texture, run_texconv):
+    try:
+        # convert to usable formats for blender
+        if os.path.exists(texture):
+            run_texconv(texture, TEMP_TEXTURES_PATH)
+        image = bpy.data.images.load(
+            os.path.join(TEMP_TEXTURES_PATH, os.path.basename(texture))
+        )
+        node.image = image
+    except:
+        image = bpy.ops.image.new(name=node.label, width=1, height=1)
+        node.image = bpy.data.images[node.label]
+
+    if node.image and node.label != "_clr":
+        node.image.colorspace_settings.name = "Non-Color"
+
+
+def load_mesh_material(name, filepath, textures_path):
+    mesh_material = os.path.join(filepath, f"{name}.mesh_material")
+    contents = json.load(open(mesh_material, "r"))
+    return [
+        (
+            os.path.join(textures_path, f"{contents.get(key)}.dds")
+            if contents.get(key)
+            else " "
+        )
+        for key in [
+            "base_color_texture",
+            "occlusion_roughness_metallic_texture",
+            "mask_texture",
+            "normal_texture",
+        ]
+    ]
+
+
+def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_texconv):
+    textures = load_mesh_material(material_name, mesh_materials_path, textures_path)
+
+    material = bpy.data.materials.new(name=material_name)
+    material.use_nodes = True
+    node_id = material.node_tree
+    nodes = material.node_tree.nodes
+
+    principled_node = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
+    set_node_position(principled_node, 0, 0)
+
+    _clr = nodes.new(type="ShaderNodeTexImage")
+    set_node_position(_clr, -16, 0)
+    _clr.label = "_clr"
+    load_texture(_clr, textures[0], run_texconv)
+
+    _orm = nodes.new(type="ShaderNodeTexImage")
+    set_node_position(_orm, -16, 2)
+    _orm.label = "_orm"
+    load_texture(_orm, textures[1], run_texconv)
+
+    _msk = nodes.new(type="ShaderNodeTexImage")
+    set_node_position(_msk, -16, 4)
+    _msk.label = "_msk"
+    load_texture(_msk, textures[2], run_texconv)
+
+    _nrm = nodes.new(type="ShaderNodeTexImage")
+    set_node_position(_nrm, -16, 6)
+    _nrm.label = "_nrm"
+    load_texture(_nrm, textures[3], run_texconv)
+
+    mapping_node = nodes.new(type="ShaderNodeMapping")
+    set_node_position(mapping_node, -19, 0)
+
+    tex_coord_node = nodes.new(type="ShaderNodeTexCoord")
+    set_node_position(tex_coord_node, -21, 0)
+
+    mix_node_1 = nodes.new(type="ShaderNodeMix")
+    set_node_position(mix_node_1, -4, -2)
+    mix_node_1.data_type = "RGBA"
+    mix_node_1.blend_type = "MIX"
+
+    mix_node_2 = nodes.new(type="ShaderNodeMix")
+    set_node_position(mix_node_2, -8, -2)
+    mix_node_2.data_type = "RGBA"
+    mix_node_2.blend_type = "VALUE"
+
+    clamp_node = nodes.new(type="ShaderNodeClamp")
+    clamp_node.inputs[1].default_value = 0.135
+    clamp_node.inputs[2].default_value = 0.350
+    clamp_node.clamp_type = "RANGE"
+    set_node_position(clamp_node, -10, 1)
+
+    separate_color_node = nodes.new(type="ShaderNodeSeparateColor")
+    set_node_position(separate_color_node, -13, 2)
+    separate_color_node_2 = nodes.new(type="ShaderNodeSeparateColor")
+    set_node_position(separate_color_node_2, -13, 4)
+
+    color_ramp = nodes.new(type="ShaderNodeValToRGB")
+    set_node_position(color_ramp, -7, 3)
+    color_ramp.color_ramp.interpolation = "EASE"
+    color_ramp.color_ramp.elements[0].position = 0.445
+    color_ramp.color_ramp.elements[1].position = 0.560
+
+    color_ramp_2 = nodes.new(type="ShaderNodeValToRGB")
+    set_node_position(color_ramp_2, -7, 5)
+    color_ramp_2.color_ramp.elements[0].color = (0, 0, 0, 1)
+    add_driver(node_id, color_ramp_2, "Team Color - 1", "mesh_properties.team_color_1")
+
+    color_ramp_3 = nodes.new(type="ShaderNodeValToRGB")
+    set_node_position(color_ramp_3, -7, 7)
+    color_ramp_3.color_ramp.elements[0].color = (0, 0, 0, 1)
+    add_driver(node_id, color_ramp_3, "Team Color - 2", "mesh_properties.team_color_2")
+
+    color_ramp_4 = nodes.new(type="ShaderNodeValToRGB")
+    set_node_position(color_ramp_4, -7, 9)
+    color_ramp_4.color_ramp.elements[0].color = (0, 0, 0, 1)
+    color_ramp_4.color_ramp.elements.new(position=0.5)
+    color_ramp_4.color_ramp.elements[1].color = (0, 0, 0, 1)
+    add_driver(node_id, color_ramp_4, "Emissive", "mesh_properties.team_color_3")
+
+    separate_color_node_3 = nodes.new(type="ShaderNodeSeparateColor")
+    set_node_position(separate_color_node_3, -13, 6)
+
+    multiply_node = nodes.new(type="ShaderNodeMath")
+    multiply_node.operation = "MULTIPLY"
+    multiply_node.inputs[1].default_value = 1
+    set_node_position(multiply_node, -10, 12)
+
+    multiply_node_2 = nodes.new(type="ShaderNodeMath")
+    multiply_node_2.operation = "MULTIPLY"
+    set_node_position(multiply_node_2, -4, 13)
+    multiply_node_2.inputs[1].default_value = 2.0
+
+    multiply_node_3 = nodes.new(type="ShaderNodeMath")
+    multiply_node_3.operation = "MULTIPLY"
+    set_node_position(multiply_node_3, -4, 11)
+    multiply_node_3.inputs[1].default_value = 2.0
+
+    subtract_node = nodes.new(type="ShaderNodeMath")
+    subtract_node.operation = "SUBTRACT"
+    set_node_position(subtract_node, -2, 11)
+    subtract_node.inputs[1].default_value = 1.0
+
+    subtract_node_2 = nodes.new(type="ShaderNodeMath")
+    subtract_node_2.operation = "SUBTRACT"
+    set_node_position(subtract_node_2, -2, 13)
+    subtract_node_2.inputs[1].default_value = 1.0
+
+    combine_xyz_node = nodes.new(type="ShaderNodeCombineXYZ")
+    set_node_position(combine_xyz_node, 0, 12)
+
+    dot_product_node = nodes.new(type="ShaderNodeVectorMath")
+    set_node_position(dot_product_node, 2, 12)
+    dot_product_node.operation = "DOT_PRODUCT"
+
+    color_invert_node = nodes.new(type="ShaderNodeInvert")
+    set_node_position(color_invert_node, 4, 12)
+
+    clamp_node_2 = nodes.new(type="ShaderNodeClamp")
+    clamp_node_2.inputs[1].default_value = 0
+    clamp_node_2.inputs[2].default_value = 1
+    set_node_position(clamp_node_2, 6, 12)
+
+    square_root_node = nodes.new(type="ShaderNodeMath")
+    square_root_node.operation = "SQRT"
+    set_node_position(square_root_node, 8, 12)
+
+    combine_xyz_node_2 = nodes.new(type="ShaderNodeCombineXYZ")
+    set_node_position(combine_xyz_node_2, 10, 10)
+
+    normal_map_node = nodes.new(type="ShaderNodeNormalMap")
+    set_node_position(normal_map_node, 12, 10)
+
+    principled_node.inputs[27].default_value = 10
+
+    material.node_tree.links.new(
+        mix_node_1.outputs["Result"], principled_node.inputs["Base Color"]
+    )
+    material.node_tree.links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
+
+    material.node_tree.links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
+
+    material.node_tree.links.new(_clr.outputs["Color"], mix_node_2.inputs["B"])
+
+    material.node_tree.links.new(
+        multiply_node.outputs["Value"], multiply_node_3.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        subtract_node.outputs["Value"], combine_xyz_node.inputs["X"]
+    )
+    material.node_tree.links.new(
+        subtract_node_2.outputs["Value"], combine_xyz_node.inputs["Y"]
+    )
+
+    material.node_tree.links.new(
+        _orm.outputs["Color"], separate_color_node.inputs["Color"]
+    )
+    material.node_tree.links.new(
+        separate_color_node.outputs["Green"], clamp_node.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        multiply_node_3.outputs["Value"], subtract_node.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        combine_xyz_node.outputs["Vector"], dot_product_node.inputs[0]
+    )
+    material.node_tree.links.new(
+        combine_xyz_node.outputs["Vector"], dot_product_node.inputs[1]
+    )
+
+    material.node_tree.links.new(
+        dot_product_node.outputs["Value"], color_invert_node.inputs["Color"]
+    )
+
+    material.node_tree.links.new(
+        multiply_node_2.outputs["Value"], subtract_node_2.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        square_root_node.outputs["Value"], combine_xyz_node_2.inputs["Z"]
+    )
+
+    material.node_tree.links.new(
+        combine_xyz_node_2.outputs["Vector"], normal_map_node.inputs["Color"]
+    )
+
+    material.node_tree.links.new(
+        normal_map_node.outputs["Normal"], principled_node.inputs["Normal"]
+    )
+
+    material.node_tree.links.new(
+        separate_color_node_3.outputs["Red"], combine_xyz_node_2.inputs["X"]
+    )
+
+    material.node_tree.links.new(
+        multiply_node.outputs["Value"], combine_xyz_node_2.inputs["Y"]
+    )
+
+    material.node_tree.links.new(
+        clamp_node.outputs["Result"], principled_node.inputs["Roughness"]
+    )
+
+    material.node_tree.links.new(
+        separate_color_node_3.outputs["Green"], multiply_node_2.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        color_invert_node.outputs["Color"], clamp_node_2.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        clamp_node_2.outputs["Result"], square_root_node.inputs["Value"]
+    )
+
+    material.node_tree.links.new(
+        separate_color_node.outputs["Blue"], color_ramp.inputs["Fac"]
+    )
+    material.node_tree.links.new(
+        color_ramp.outputs["Color"], principled_node.inputs["Metallic"]
+    )
+
+    material.node_tree.links.new(color_ramp_2.outputs["Color"], mix_node_2.inputs["A"])
+
+    material.node_tree.links.new(
+        separate_color_node_3.outputs["Green"], multiply_node.inputs["Value"]
+    )
+
+    material.node_tree.links.new(color_ramp_3.outputs["Color"], mix_node_1.inputs["A"])
+    material.node_tree.links.new(
+        color_ramp_4.outputs["Color"], principled_node.inputs[26]
+    )
+
+    material.node_tree.links.new(
+        _nrm.outputs["Color"], separate_color_node_3.inputs["Color"]
+    )
+
+    material.node_tree.links.new(
+        _msk.outputs["Color"], separate_color_node_2.inputs["Color"]
+    )
+    material.node_tree.links.new(
+        separate_color_node_2.outputs["Red"], color_ramp_2.inputs["Fac"]
+    )
+
+    material.node_tree.links.new(
+        separate_color_node_2.outputs["Green"], color_ramp_3.inputs["Fac"]
+    )
+    material.node_tree.links.new(
+        separate_color_node_2.outputs["Blue"], color_ramp_4.inputs["Fac"]
+    )
+
+    material.node_tree.links.new(
+        tex_coord_node.outputs["UV"], mapping_node.inputs["Vector"]
+    )
+
+    material.node_tree.links.new(mapping_node.outputs["Vector"], _clr.inputs["Vector"])
+    material.node_tree.links.new(mapping_node.outputs["Vector"], _nrm.inputs["Vector"])
+    material.node_tree.links.new(mapping_node.outputs["Vector"], _msk.inputs["Vector"])
+    material.node_tree.links.new(mapping_node.outputs["Vector"], _orm.inputs["Vector"])
+    material.node_tree.links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
+
+    return material
+
+
 classes = (
     SINSII_OT_Import_Mesh,
     SINSII_OT_Export_Mesh,
@@ -947,7 +1301,7 @@ classes = (
     SINSII_PT_Meshpoint_Documentation,
     SINSII_PT_Meshpoint_Miscellaneous,
     SINSII_PT_Meshpoint_Turret,
-    SINSII_PT_Meshpoint
+    SINSII_PT_Meshpoint,
 )
 
 
