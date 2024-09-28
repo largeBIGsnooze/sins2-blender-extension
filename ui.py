@@ -1,9 +1,10 @@
 import bpy, json, os, math, subprocess, re, shutil, time, bmesh, tempfile
+from bpy.props import CollectionProperty
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
 from .src.lib.helpers.material import MeshMaterial
-from . import bl_info
+from . import bl_info, TEMP_TEXTURES_PATH
 from .src.lib.github_downloader import Github_Downloader
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
@@ -13,9 +14,6 @@ MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
 )
 TEXCONV_EXE = os.path.join(CWD_PATH, "src", "lib", "tools", "texconv", "texconv.exe")
-TEMP_TEXTURES_PATH = os.path.join(
-    tempfile.gettempdir(), "sins2-blender-extension_textures"
-)
 
 GAME_MATRIX = Matrix(((-1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
 MESHPOINT_MATRIX = Matrix(((-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (0, 0, 0, 1)))
@@ -58,7 +56,7 @@ class SINSII_Main_Panel:
 
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Sins II Utility"
+    bl_category = "Sins II Extension"
 
 
 class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -515,15 +513,22 @@ def run_texconv(texture, temp_dir):
     )
 
 
-def run_meshbuilder(file_path, dest_path, dest_format):
-    subprocess.run(
-        [
-            MESHBUILDER_EXE,
-            f"--input_path={file_path}",
-            f"--output_folder_path={dest_path}",
-            f"--mesh_output_format={dest_format}",
-        ],
-    )
+def run_meshbuilder(file_path, dest_path):
+    try:
+        result = subprocess.run(
+            [
+                MESHBUILDER_EXE,
+                f"--input_path={file_path}",
+                f"--output_folder_path={dest_path}",
+                "--mesh_output_format=binary",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        return e.stderr
 
 
 def get_materials(mesh):
@@ -536,18 +541,6 @@ def get_materials(mesh):
         return mesh.name
     else:
         return materials
-
-
-def move_textures(path):
-    for texture in os.listdir(path):
-        if not ".png" in texture:
-            continue
-        dest = (
-            normalize(path, "../textures")
-            if os.path.exists(normalize(path, "../textures"))
-            else path
-        )
-        rename(path=path, dest=dest, filename=texture)
 
 
 def create_and_move_mesh_materials(file_path, mesh):
@@ -634,7 +627,7 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
             shield.data.materials.append(new_mat)
             shield.select_set(False)
 
-        purge_orphans()
+        # purge_orphans()
 
         return {"FINISHED"}
 
@@ -651,7 +644,7 @@ def get_unused_materials(mesh, materials):
     return unused_mats
 
 
-def import_mesh(self, mesh_data, mesh_name, mesh):
+def load_mesh_data(self, mesh_data, mesh_name, mesh):
     primitives = mesh_data["primitives"]
     materials = mesh_data["materials"]
     meshpoints = mesh_data["meshpoints"]
@@ -758,12 +751,31 @@ def import_mesh(self, mesh_data, mesh_name, mesh):
             @ MESHPOINT_MATRIX
         ).to_euler()
 
-    purge_orphans()
+    # purge_orphans()
+
+    return obj, radius
 
 
-def clear_temp_textures():
-    for texture in os.listdir(TEMP_TEXTURES_PATH):
-        os.remove(os.path.join(TEMP_TEXTURES_PATH, texture))
+def import_mesh(self, file_path):
+    mesh_name = file_path.rsplit("\\", 1)[1].split(".mesh")[0]
+    mesh = bpy.data.meshes.new(name=mesh_name)
+    try:
+
+        #  _____ _____ _   _  _____     _____
+        # /  ___|_   _| \ | |/  ___|   / __  \
+        # \ `--.  | | |  \| |\ `--.    `' / /'
+        #  `--. \ | | | . ` | `--. \     / /
+        # /\__/ /_| |_| |\  |/\__/ /   ./ /___
+        # \____/ \___/\_| \_/\____/    \_____/
+
+        buffer = BinaryReader.open(file_path)
+        reader = BinaryReader.initialize_from(buffer)
+    except Exception as e:
+        self.report({"ERROR"}, f"Mesh import failed.: {e}")
+        return {"CANCELLED"}
+
+    return load_mesh_data(self, reader.mesh_data, mesh_name, mesh)
+
 
 class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
     bl_idname = "sinsii.import_mesh"
@@ -772,31 +784,25 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
     bl_options = {"REGISTER"}
 
     filename_ext = ".mesh"
-
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
+
+    files: CollectionProperty(type=bpy.types.PropertyGroup)
 
     def execute(self, context):
         os.makedirs(TEMP_TEXTURES_PATH, exist_ok=True)
-        clear_temp_textures()
-        mesh_name = self.filepath.rsplit("\\", 1)[1].split(".mesh")[0]
-        mesh = bpy.data.meshes.new(name=mesh_name)
-        try:
+        radius_arr = []
+        offset = 0
+        for i, file in enumerate(self.files):
+            mesh, radius = import_mesh(
+                self, os.path.join(os.path.dirname(self.filepath), file.name)
+            )
+            radius_arr.append(radius)
+            if i > 0:
+                offset += radius_arr[i - 1] + radius_arr[i]
 
-            #  _____ _____ _   _  _____     _____
-            # /  ___|_   _| \ | |/  ___|   / __  \
-            # \ `--.  | | |  \| |\ `--.    `' / /'
-            #  `--. \ | | | . ` | `--. \     / /
-            # /\__/ /_| |_| |\  |/\__/ /   ./ /___
-            # \____/ \___/\_| \_/\____/    \_____/
+            mesh.location = (offset, 0, 0)
 
-            buffer = BinaryReader.open(self.filepath)
-            reader = BinaryReader.initialize_from(buffer)
-        except Exception as e:
-            self.report({"ERROR"}, f"Mesh import failed.: {e}")
-            return {"CANCELLED"}
-
-        import_mesh(self, reader.mesh_data, mesh_name, mesh)
-        self.report({"INFO"}, f"Imported: {self.filepath}")
+        self.report({"INFO"}, f"Imported meshes: {[file.name for file in self.files]}")
         return {"FINISHED"}
 
 
@@ -862,15 +868,19 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         export_format="GLTF_SEPARATE",
         export_yup=False,
         export_apply=False,
+        export_image_format="NONE",
     )
 
     mesh.matrix_world = original_transform
 
-    run_meshbuilder(
-        file_path=os.path.join(export_dir, f"{mesh_name}.gltf"),
-        dest_path=export_dir,
-        dest_format="binary",
+    meshbuilder_err = run_meshbuilder(
+        file_path=os.path.join(export_dir, f"{mesh_name}.gltf"), dest_path=export_dir
     )
+    if meshbuilder_err and not meshbuilder_err.strip().endswith("not found"):
+        self.report({"ERROR"}, meshbuilder_err)
+        return
+    else:
+        print(meshbuilder_err)
 
     buffer = BinaryReader.open(os.path.join(export_dir, f"{mesh_name}.mesh"))
     reader = BinaryReader.initialize_from(buffer)
@@ -920,7 +930,7 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         children=mesh.children, original=original_meshpoint_transforms
     )
 
-    clear_files(export_dir, mesh_name, mesh)
+    post_export_operations(export_dir, mesh_name, mesh)
 
     self.report(
         {"INFO"},
@@ -930,10 +940,9 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     )
 
 
-def clear_files(export_dir, mesh_name, mesh):
+def post_export_operations(export_dir, mesh_name, mesh):
     clear_leftovers(export_dir, mesh_name)
     create_and_move_mesh_materials(export_dir, mesh)
-    move_textures(export_dir)
 
 
 class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
@@ -957,7 +966,7 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, f"Could not export the model: {e}")
             return {"CANCELLED"}
 
-        purge_orphans()
+        # purge_orphans()
 
         return {"FINISHED"}
 
@@ -985,12 +994,15 @@ def add_driver(node_id, node, name, data_path):
 def load_texture(node, texture, run_texconv):
     try:
         # convert to usable formats for blender
-        if os.path.exists(texture):
+        tex_file = os.path.basename(texture)
+        tmp_texture_path = os.path.join(TEMP_TEXTURES_PATH, tex_file)
+
+        if os.path.exists(tmp_texture_path):
+            node.image = bpy.data.images[tex_file]
+        else:
             run_texconv(texture, TEMP_TEXTURES_PATH)
-        image = bpy.data.images.load(
-            os.path.join(TEMP_TEXTURES_PATH, os.path.basename(texture))
-        )
-        node.image = image
+            image = bpy.data.images.load(tmp_texture_path)
+            node.image = image
     except:
         image = bpy.ops.image.new(name=node.label, width=1, height=1)
         node.image = bpy.data.images[node.label]
@@ -1001,6 +1013,10 @@ def load_texture(node, texture, run_texconv):
 
 def load_mesh_material(name, filepath, textures_path):
     mesh_material = os.path.join(filepath, f"{name}.mesh_material")
+
+    if not os.path.exists(mesh_material):
+        return ["", "", "", ""]
+
     contents = json.load(open(mesh_material, "r"))
     return [
         (
@@ -1153,133 +1169,47 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_t
 
     principled_node.inputs[27].default_value = 10
 
-    material.node_tree.links.new(
-        mix_node_1.outputs["Result"], principled_node.inputs["Base Color"]
-    )
-    material.node_tree.links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
-
-    material.node_tree.links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
-
-    material.node_tree.links.new(_clr.outputs["Color"], mix_node_2.inputs["B"])
-
-    material.node_tree.links.new(
-        multiply_node.outputs["Value"], multiply_node_3.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        subtract_node.outputs["Value"], combine_xyz_node.inputs["X"]
-    )
-    material.node_tree.links.new(
-        subtract_node_2.outputs["Value"], combine_xyz_node.inputs["Y"]
-    )
-
-    material.node_tree.links.new(
-        _orm.outputs["Color"], separate_color_node.inputs["Color"]
-    )
-    material.node_tree.links.new(
-        separate_color_node.outputs["Green"], clamp_node.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        multiply_node_3.outputs["Value"], subtract_node.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        combine_xyz_node.outputs["Vector"], dot_product_node.inputs[0]
-    )
-    material.node_tree.links.new(
-        combine_xyz_node.outputs["Vector"], dot_product_node.inputs[1]
-    )
-
-    material.node_tree.links.new(
-        dot_product_node.outputs["Value"], color_invert_node.inputs["Color"]
-    )
-
-    material.node_tree.links.new(
-        multiply_node_2.outputs["Value"], subtract_node_2.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        square_root_node.outputs["Value"], combine_xyz_node_2.inputs["Z"]
-    )
-
-    material.node_tree.links.new(
-        combine_xyz_node_2.outputs["Vector"], normal_map_node.inputs["Color"]
-    )
-
-    material.node_tree.links.new(
-        normal_map_node.outputs["Normal"], principled_node.inputs["Normal"]
-    )
-
-    material.node_tree.links.new(
-        separate_color_node_3.outputs["Red"], combine_xyz_node_2.inputs["X"]
-    )
-
-    material.node_tree.links.new(
-        multiply_node.outputs["Value"], combine_xyz_node_2.inputs["Y"]
-    )
-
-    material.node_tree.links.new(
-        clamp_node.outputs["Result"], principled_node.inputs["Roughness"]
-    )
-
-    material.node_tree.links.new(
-        separate_color_node_3.outputs["Green"], multiply_node_2.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        color_invert_node.outputs["Color"], clamp_node_2.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        clamp_node_2.outputs["Result"], square_root_node.inputs["Value"]
-    )
-
-    material.node_tree.links.new(
-        separate_color_node.outputs["Blue"], color_ramp.inputs["Fac"]
-    )
-    material.node_tree.links.new(
-        color_ramp.outputs["Color"], principled_node.inputs["Metallic"]
-    )
-
-    material.node_tree.links.new(color_ramp_2.outputs["Color"], mix_node_2.inputs["A"])
-
-    material.node_tree.links.new(
-        separate_color_node_3.outputs["Green"], multiply_node.inputs["Value"]
-    )
-
-    material.node_tree.links.new(color_ramp_3.outputs["Color"], mix_node_1.inputs["A"])
-    material.node_tree.links.new(
-        color_ramp_4.outputs["Color"], principled_node.inputs[26]
-    )
-
-    material.node_tree.links.new(
-        _nrm.outputs["Color"], separate_color_node_3.inputs["Color"]
-    )
-
-    material.node_tree.links.new(
-        _msk.outputs["Color"], separate_color_node_2.inputs["Color"]
-    )
-    material.node_tree.links.new(
-        separate_color_node_2.outputs["Red"], color_ramp_2.inputs["Fac"]
-    )
-
-    material.node_tree.links.new(
-        separate_color_node_2.outputs["Green"], color_ramp_3.inputs["Fac"]
-    )
-    material.node_tree.links.new(
-        separate_color_node_2.outputs["Blue"], color_ramp_4.inputs["Fac"]
-    )
-
-    material.node_tree.links.new(
-        tex_coord_node.outputs["UV"], mapping_node.inputs["Vector"]
-    )
-
-    material.node_tree.links.new(mapping_node.outputs["Vector"], _clr.inputs["Vector"])
-    material.node_tree.links.new(mapping_node.outputs["Vector"], _nrm.inputs["Vector"])
-    material.node_tree.links.new(mapping_node.outputs["Vector"], _msk.inputs["Vector"])
-    material.node_tree.links.new(mapping_node.outputs["Vector"], _orm.inputs["Vector"])
-    material.node_tree.links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
+    links = material.node_tree.links
+    links.new(mix_node_1.outputs["Result"], principled_node.inputs["Base Color"])
+    links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
+    links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
+    links.new(_clr.outputs["Color"], mix_node_2.inputs["B"])
+    links.new(multiply_node.outputs["Value"], multiply_node_3.inputs["Value"])
+    links.new(subtract_node.outputs["Value"], combine_xyz_node.inputs["X"])
+    links.new(subtract_node_2.outputs["Value"], combine_xyz_node.inputs["Y"])
+    links.new(_orm.outputs["Color"], separate_color_node.inputs["Color"])
+    links.new(separate_color_node.outputs["Green"], clamp_node.inputs["Value"])
+    links.new(multiply_node_3.outputs["Value"], subtract_node.inputs["Value"])
+    links.new(combine_xyz_node.outputs["Vector"], dot_product_node.inputs[0])
+    links.new(combine_xyz_node.outputs["Vector"], dot_product_node.inputs[1])
+    links.new(dot_product_node.outputs["Value"], color_invert_node.inputs["Color"])
+    links.new(multiply_node_2.outputs["Value"], subtract_node_2.inputs["Value"])
+    links.new(square_root_node.outputs["Value"], combine_xyz_node_2.inputs["Z"])
+    links.new(combine_xyz_node_2.outputs["Vector"], normal_map_node.inputs["Color"])
+    links.new(normal_map_node.outputs["Normal"], principled_node.inputs["Normal"])
+    links.new(separate_color_node_3.outputs["Red"], combine_xyz_node_2.inputs["X"])
+    links.new(multiply_node.outputs["Value"], combine_xyz_node_2.inputs["Y"])
+    links.new(clamp_node.outputs["Result"], principled_node.inputs["Roughness"])
+    links.new(separate_color_node_3.outputs["Green"], multiply_node_2.inputs["Value"])
+    links.new(color_invert_node.outputs["Color"], clamp_node_2.inputs["Value"])
+    links.new(clamp_node_2.outputs["Result"], square_root_node.inputs["Value"])
+    links.new(separate_color_node.outputs["Blue"], color_ramp.inputs["Fac"])
+    links.new(color_ramp.outputs["Color"], principled_node.inputs["Metallic"])
+    links.new(color_ramp_2.outputs["Color"], mix_node_2.inputs["A"])
+    links.new(separate_color_node_3.outputs["Green"], multiply_node.inputs["Value"])
+    links.new(color_ramp_3.outputs["Color"], mix_node_1.inputs["A"])
+    links.new(color_ramp_4.outputs["Color"], principled_node.inputs[26])
+    links.new(_nrm.outputs["Color"], separate_color_node_3.inputs["Color"])
+    links.new(_msk.outputs["Color"], separate_color_node_2.inputs["Color"])
+    links.new(separate_color_node_2.outputs["Red"], color_ramp_2.inputs["Fac"])
+    links.new(separate_color_node_2.outputs["Green"], color_ramp_3.inputs["Fac"])
+    links.new(separate_color_node_2.outputs["Blue"], color_ramp_4.inputs["Fac"])
+    links.new(tex_coord_node.outputs["UV"], mapping_node.inputs["Vector"])
+    links.new(mapping_node.outputs["Vector"], _clr.inputs["Vector"])
+    links.new(mapping_node.outputs["Vector"], _nrm.inputs["Vector"])
+    links.new(mapping_node.outputs["Vector"], _msk.inputs["Vector"])
+    links.new(mapping_node.outputs["Vector"], _orm.inputs["Vector"])
+    links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
 
     return material
 

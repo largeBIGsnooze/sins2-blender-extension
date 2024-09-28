@@ -1,14 +1,24 @@
 bl_info = {
-    "name": "Sins II Utility",
-    "description": "Extension for exporting meshes whilst leveraging official tooling",
+    "name": "Sins II Extension",
+    "description": "Extension for importing and exporting meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (0, 8, 0),
+    "version": (0, 8, 1),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",
 }
 
-import bpy
+import bpy, os, tempfile
+
+TEMP_TEXTURES_PATH = os.path.join(
+    tempfile.gettempdir(), "sins2-blender-extension.tmp.textures.dir"
+)
+
+
+# clear cached textures
+def clear_temp_textures():
+    for texture in os.listdir(TEMP_TEXTURES_PATH):
+        os.remove(os.path.join(TEMP_TEXTURES_PATH, texture))
 
 
 def register():
@@ -17,6 +27,7 @@ def register():
 
     ui.register()
     properties.register()
+    clear_temp_textures()
 
 
 def unregister():
@@ -25,6 +36,7 @@ def unregister():
 
     ui.unregister()
     properties.unregister()
+    clear_temp_textures()
 
 
 if __name__ == "__main__":
