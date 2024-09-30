@@ -211,20 +211,24 @@ class SINSII_PT_Meshpoint_Documentation(SINSII_Main_Panel, bpy.types.Panel):
         )
 
 
+def flip_normals(mesh):
+    try:
+        bpy.context.view_layer.objects.active = mesh
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.flip_normals()
+        bpy.ops.object.editmode_toggle()
+    except:
+        pass
+
+
 class SINSII_OT_Flip_Normals(bpy.types.Operator):
     bl_label = "Flip"
     bl_idname = "sinsii.flip_normals"
 
     def execute(self, context):
         mesh = get_selected_mesh()
-        try:
-            bpy.context.view_layer.objects.active = mesh
-            bpy.ops.object.editmode_toggle()
-            bpy.ops.mesh.select_all(action="SELECT")
-            bpy.ops.mesh.flip_normals()
-            bpy.ops.object.editmode_toggle()
-        except:
-            pass
+        flip_normals(mesh)
         return {"FINISHED"}
 
 
@@ -550,6 +554,10 @@ def create_and_move_mesh_materials(file_path, mesh):
     for material in (material for material in materials if material not in unused_mats):
         # skip unused material
         material_name = f"{material}.mesh_material"
+        mesh_materials_dir = normalize(file_path, "../mesh_materials")
+        mesh_material = os.path.join(mesh_materials_dir, material_name)
+        if os.path.exists(mesh_material):
+            continue
         with open(os.path.join(file_path, material_name), "w") as f:
             mesh_material = MeshMaterial(
                 clr=f"{material}_clr",
@@ -559,11 +567,7 @@ def create_and_move_mesh_materials(file_path, mesh):
             ).json()
             f.write(json.dumps(mesh_material, indent=4))
             f.close()
-        dest = (
-            normalize(file_path, "../mesh_materials")
-            if os.path.exists(normalize(file_path, "../mesh_materials"))
-            else file_path
-        )
+        dest = mesh_materials_dir if os.path.exists(mesh_materials_dir) else file_path
         rename(path=file_path, dest=dest, filename=material_name)
 
 
@@ -751,6 +755,8 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
             @ MESHPOINT_MATRIX
         ).to_euler()
 
+    flip_normals(obj)
+
     # purge_orphans()
 
     return obj, radius
@@ -862,8 +868,10 @@ def export_mesh(self, mesh, mesh_name, export_dir):
     if "-" in mesh_name:
         mesh_name = mesh_name.replace("-", "_")
 
+    full_mesh_path = os.path.join(export_dir, mesh_name)
+
     bpy.ops.export_scene.gltf(
-        filepath=os.path.join(export_dir, mesh_name),
+        filepath=full_mesh_path,
         use_selection=True,
         export_format="GLTF_SEPARATE",
         export_yup=False,
@@ -871,10 +879,21 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         export_image_format="NONE",
     )
 
+    with open(f"{full_mesh_path}.gltf", "r+") as f:
+        gltf_document = json.load(f)
+        for material in gltf_document["materials"]:
+            try:
+                del material["doubleSided"]
+            except:
+                pass
+        f.seek(0)
+        f.write(json.dumps(gltf_document))
+        f.truncate()
+
     mesh.matrix_world = original_transform
 
     meshbuilder_err = run_meshbuilder(
-        file_path=os.path.join(export_dir, f"{mesh_name}.gltf"), dest_path=export_dir
+        file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
     )
     if meshbuilder_err and not meshbuilder_err.strip().endswith("not found"):
         self.report({"ERROR"}, meshbuilder_err)
