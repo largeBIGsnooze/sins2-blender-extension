@@ -530,14 +530,13 @@ def run_meshbuilder(file_path, dest_path):
 
 def get_materials(mesh):
     materials = []
-    if mesh.type == "MESH" and len(mesh.data.materials) != 0:
+    if mesh.type == "MESH":
         for material in mesh.data.materials:
             if material is not None:
                 materials.append(material.name.lower())
-    if len(materials) == 0:
-        return mesh.name
-    else:
-        return materials
+        if len(materials) == 0:
+            return mesh.name
+    return materials
 
 
 def create_and_move_mesh_materials(file_path, mesh):
@@ -865,9 +864,11 @@ def export_gltf_document(file_path):
 
 
 def join_meshes(meshes):
+    bpy.ops.object.select_all(action="DESELECT")
     for mesh in sorted(meshes, key=lambda mesh: mesh.name.lower()):
         mesh.select_set(True)
     bpy.ops.object.join()
+    return bpy.context.view_layer.objects.active
 
 
 def export_mesh(self, mesh_name, export_dir):
@@ -881,6 +882,24 @@ def export_mesh(self, mesh_name, export_dir):
 
     if not get_selected_meshes():
         self.report({"WARNING"}, f"You need to select a mesh before exporting")
+        return
+
+    mesh = get_selected_mesh()
+
+    invalid_meshpoints = make_meshpoint_rules(mesh)
+    if invalid_meshpoints:
+        self.report(
+            {"ERROR"},
+            f'Invalid meshpoints: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
+        )
+        return
+
+    materials = get_materials(mesh)
+    if type(materials) is str:
+        self.report(
+            {"ERROR"},
+            'Cannot export "{0}" without any materials'.format(materials),
+        )
         return
 
     bpy.ops.object.mode_set(mode="EDIT")
@@ -909,25 +928,7 @@ def export_mesh(self, mesh_name, export_dir):
         file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
     )
 
-    join_meshes(meshes)
-
-    mesh = get_selected_mesh()
-
-    invalid_meshpoints = make_meshpoint_rules(mesh)
-    if invalid_meshpoints:
-        self.report(
-            {"ERROR"},
-            f'Invalid meshpoints: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
-        )
-        return
-
-    materials = get_materials(mesh)
-    if type(materials) is str:
-        self.report(
-            {"ERROR"},
-            'Cannot export "{0}" without any materials'.format(materials),
-        )
-        return
+    mesh = join_meshes(meshes)
 
     if meshbuilder_err and not meshbuilder_err.strip().endswith("not found"):
         self.report({"ERROR"}, meshbuilder_err)
