@@ -70,22 +70,14 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         col.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
         # col.separator(factor=1.5)
         # col.operator("sinsii.debug")
-        col.separator(factor=1.5)
+        col.separator(factor=0.5)
         box = col.box()
-        box.label(text="Ensure the orientation is red before exporting")
-        box.prop(context.scene.mesh_properties, "check_normals_orientation")
-        box.operator("sinsii.flip_normals")
-        col.separator(factor=1.5)
-        col.prop(context.scene.mesh_properties, "enable_experimental_features")
-        if context.scene.mesh_properties.enable_experimental_features == True:
-            col.separator(factor=1.5)
-            col.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
-            col.separator(factor=1.0)
-            col.label(text="Primary, Secondary, Emissive")
-            row = col.row()
-            row.prop(context.scene.mesh_properties, "team_color_1")
-            row.prop(context.scene.mesh_properties, "team_color_2")
-            row.prop(context.scene.mesh_properties, "team_color_3")
+        box.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
+        box.label(text="Primary, Secondary, Emissive")
+        row = col.row()
+        row.prop(context.scene.mesh_properties, "team_color_1")
+        row.prop(context.scene.mesh_properties, "team_color_2")
+        row.prop(context.scene.mesh_properties, "team_color_3")
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -222,14 +214,14 @@ def flip_normals(mesh):
         pass
 
 
-class SINSII_OT_Flip_Normals(bpy.types.Operator):
-    bl_label = "Flip"
-    bl_idname = "sinsii.flip_normals"
+# class SINSII_OT_Flip_Normals(bpy.types.Operator):
+#     bl_label = "Flip"
+#     bl_idname = "sinsii.flip_normals"
 
-    def execute(self, context):
-        mesh = get_selected_mesh()
-        flip_normals(mesh)
-        return {"FINISHED"}
+#     def execute(self, context):
+#         mesh = get_selected_mesh()
+#         flip_normals(mesh)
+#         return {"FINISHED"}
 
 
 class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -251,7 +243,7 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
     def execute(self, context):
         has_center, has_above, has_aura = False, False, False
         mesh = get_selected_mesh()
-        check_freeze_transforms(mesh)
+        apply_transforms(mesh)
 
         if mesh:
             radius = get_bounding_box(mesh)[0]
@@ -320,7 +312,7 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
-def check_freeze_transforms(mesh):
+def apply_transforms(mesh):
     if not frozen(mesh):
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
@@ -335,7 +327,7 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
             return {"CANCELLED"}
         mesh = get_selected_mesh()
         bpy.ops.object.editmode_toggle()
-        check_freeze_transforms(mesh)
+        apply_transforms(mesh)
         bpy.ops.object.editmode_toggle()
 
         radius = get_bounding_box(mesh)[0]
@@ -501,7 +493,8 @@ def get_active_material():
 def get_selected_meshes():
     selected_meshes = []
     for mesh in bpy.context.selected_objects:
-        selected_meshes.append(mesh)
+        if mesh.type == "MESH":
+            selected_meshes.append(mesh)
     return selected_meshes
 
 
@@ -831,18 +824,97 @@ def frozen(mesh):
     return True
 
 
-def export_mesh(self, mesh, mesh_name, export_dir):
-    if not mesh or not mesh.type == "MESH":
-        self.report({"WARNING"}, "You need to select a mesh before exporting")
-        return
+def get_avaliable_sorted_materials(mesh):
+    materials = get_materials(mesh)
+    unused_mats = get_unused_materials(mesh, materials)
+    return sorted(
+        material for material in set(materials) if material not in unused_mats
+    )
+
+
+def clean_gltf_document(file_path):
+    with open(f"{file_path}.gltf", "r+") as f:
+        gltf_document = json.load(f)
+        for material in gltf_document["materials"]:
+            try:
+                del material["doubleSided"]
+            except:
+                pass
+        f.seek(0)
+        f.write(json.dumps(gltf_document))
+        f.truncate()
+
+
+def restore_mesh_transforms(transforms, meshes):
+    for i, mesh in enumerate(meshes):
+        mt, mpt = transforms[i]
+        mesh.matrix_world = mt
+        restore_meshpoint_transforms(children=mesh.children, original=mpt)
+
+
+def export_gltf_document(file_path):
+    bpy.ops.export_scene.gltf(
+        filepath=file_path,
+        export_format="GLTF_SEPARATE",
+        export_yup=False,
+        use_selection=True,
+        export_apply=False,
+        export_image_format="NONE",
+    )
+    clean_gltf_document(file_path)
+
+
+def join_meshes(meshes):
+    for mesh in sorted(meshes, key=lambda mesh: mesh.name.lower()):
+        mesh.select_set(True)
+    bpy.ops.object.join()
+
+
+def export_mesh(self, mesh_name, export_dir):
     if not bpy.context.mode == "OBJECT":
         self.report({"WARNING"}, "Please enter into Object Mode before exporting")
         return
 
-    check_freeze_transforms(mesh)
+    now = time.time()
+
+    original_transforms_arr = []
+
+    if not get_selected_meshes():
+        self.report({"WARNING"}, f"You need to select a mesh before exporting")
+        return
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.separate(type="MATERIAL")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    meshes = get_selected_meshes()
+
+    for mesh in meshes:
+        apply_transforms(mesh)
+        original_transform, original_meshpoint_transforms = original_transforms(mesh)
+        original_transforms_arr.append(
+            (original_transform, original_meshpoint_transforms)
+        )
+        for meshpoint in mesh.children:
+            meshpoint.select_set(True)
+
+    if "-" in mesh_name:
+        mesh_name = mesh_name.replace("-", "_")
+
+    full_mesh_path = os.path.join(export_dir, mesh_name)
+
+    export_gltf_document(full_mesh_path)
+    restore_mesh_transforms(original_transforms_arr, meshes)
+
+    meshbuilder_err = run_meshbuilder(
+        file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
+    )
+
+    join_meshes(meshes)
+
+    mesh = get_selected_mesh()
 
     invalid_meshpoints = make_meshpoint_rules(mesh)
-    if len(invalid_meshpoints) > 0:
+    if invalid_meshpoints:
         self.report(
             {"ERROR"},
             f'Invalid meshpoints: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
@@ -857,44 +929,6 @@ def export_mesh(self, mesh, mesh_name, export_dir):
         )
         return
 
-    now = time.time()
-
-    if mesh.children and len(mesh.children) >= 1:
-        for child in mesh.children:
-            child.select_set(True)
-
-    original_transform, original_meshpoint_transforms = original_transforms(mesh=mesh)
-
-    if "-" in mesh_name:
-        mesh_name = mesh_name.replace("-", "_")
-
-    full_mesh_path = os.path.join(export_dir, mesh_name)
-
-    bpy.ops.export_scene.gltf(
-        filepath=full_mesh_path,
-        use_selection=True,
-        export_format="GLTF_SEPARATE",
-        export_yup=False,
-        export_apply=False,
-        export_image_format="NONE",
-    )
-
-    with open(f"{full_mesh_path}.gltf", "r+") as f:
-        gltf_document = json.load(f)
-        for material in gltf_document["materials"]:
-            try:
-                del material["doubleSided"]
-            except:
-                pass
-        f.seek(0)
-        f.write(json.dumps(gltf_document))
-        f.truncate()
-
-    mesh.matrix_world = original_transform
-
-    meshbuilder_err = run_meshbuilder(
-        file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
-    )
     if meshbuilder_err and not meshbuilder_err.strip().endswith("not found"):
         self.report({"ERROR"}, meshbuilder_err)
         return
@@ -923,12 +957,8 @@ def export_mesh(self, mesh, mesh_name, export_dir):
 
     material_bytes = bytearray(new_buffer[:curr_mat_offset])
 
-    materials = get_materials(mesh)
-    unused_mats = get_unused_materials(mesh, materials)
     # consume prefixes
-    for material in sorted(
-        material for material in set(materials) if material not in unused_mats
-    ):
+    for material in get_avaliable_sorted_materials(mesh):
         mat_length_offset = curr_mat_offset
         old_name_length = reader.u32_at_offset(mat_length_offset)
 
@@ -944,10 +974,6 @@ def export_mesh(self, mesh, mesh_name, export_dir):
 
     with open(os.path.join(export_dir, f"{mesh_name}.mesh"), "wb") as f:
         f.write(new_buffer)
-
-    restore_meshpoint_transforms(
-        children=mesh.children, original=original_meshpoint_transforms
-    )
 
     post_export_operations(export_dir, mesh_name, mesh)
 
@@ -978,9 +1004,8 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
         EXPORT_DIR = __[0]
         MESH_NAME = __[1].lower()
 
-        mesh = get_selected_mesh()
         try:
-            export_mesh(self, mesh, MESH_NAME, EXPORT_DIR)
+            export_mesh(self, MESH_NAME, EXPORT_DIR)
         except Exception as e:
             self.report({"ERROR"}, f"Could not export the model: {e}")
             return {"CANCELLED"}
@@ -1239,7 +1264,6 @@ classes = (
     SINSII_OT_Generate_Buffs,
     SINSII_OT_Check_For_Updates,
     SINSII_OT_Debug,
-    SINSII_OT_Flip_Normals,
     SINSII_OT_Spawn_Meshpoint,
     SINSII_OT_Spawn_Shield_Mesh,
     SINSII_OT_Export_Spatial_Information,
