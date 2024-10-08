@@ -5,10 +5,15 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
 from .src.lib.helpers.material import MeshMaterial
 from . import bl_info, TEMP_TEXTURES_PATH
-from .src.lib.github_downloader import Github_Downloader
+from .src.lib.github_downloader import Github
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
+from .config import AddonSettings
 
+TEMP_DIR = tempfile.gettempdir()
+MESHPOINT_COLOR = (0.18039216101169586, 0.7686275243759155, 1.0)
+
+ADDON_SETTINGS_FILE = os.path.join(os.environ["LOCALAPPDATA"], "sins2", "sins2-blender-extension", "settings.json")
 CWD_PATH = os.path.dirname(os.path.abspath(__file__))
 MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
@@ -51,6 +56,25 @@ MESHPOINTING_RULES = {
     # - `turret_muzzle`                                                    #
 }
 
+github = Github(TEMP_DIR)
+
+# check for updates when extension activates
+try:
+    latest_version = github.fetch_latest_commit()
+except:
+    latest_version = None
+
+settings = AddonSettings(ADDON_SETTINGS_FILE)
+settings.init()
+
+SETTINGS = settings.load_settings()
+
+if "is_first_installation" in SETTINGS:
+    SETTINGS["current_version"] = latest_version
+    del SETTINGS["is_first_installation"]
+    settings.save_settings()
+
+has_update = SETTINGS["current_version"] != latest_version
 
 class SINSII_Main_Panel:
 
@@ -65,7 +89,6 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True)
-        col.label(text="Spawn a Monkey Mesh if you're unsure of sins 2 orientation")
         col.separator(factor=0.5)
         col.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
         # col.separator(factor=1.5)
@@ -74,10 +97,21 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         box = col.box()
         box.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
         box.label(text="Primary, Secondary, Emissive")
-        row = col.row()
+        row = box.row()
         row.prop(context.scene.mesh_properties, "team_color_1")
         row.prop(context.scene.mesh_properties, "team_color_2")
         row.prop(context.scene.mesh_properties, "team_color_3")
+        if SETTINGS["has_synchronized_meshpoint_color"] == False:
+            col = col.column()
+            col.separator(factor=1.0)
+            col.operator("sinsii.sync_color", text="Synchronize Meshpoint Color")
+        else:
+            for theme in bpy.context.preferences.themes:
+                if tuple(theme.view_3d.empty) != MESHPOINT_COLOR:
+                    SETTINGS["has_synchronized_meshpoint_color"] = False
+                    settings.save_settings()
+                    break
+
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -87,10 +121,41 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True)
-        col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
-        col.separator(factor=1.5)
-        col.operator("sinsii.export_spatial", icon="META_BALL")
+        mesh = get_selected_mesh()
+        if not mesh or mesh.type != "MESH":
+            col.label(text="Select a mesh...")
+        else:
+            col.label(text=f"Selected: {mesh.name}")
+            col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
+            col.operator(
+                "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
+            )
+            col.separator(factor=0.5)
+            col.operator("sinsii.export_spatial", icon="META_BALL")
 
+
+
+class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
+    bl_idname = "sinsii.format_meshpoints"
+    bl_label = "Format"
+
+    @classmethod
+    def poll(cls, context):
+        mesh = get_selected_mesh()
+        return mesh and mesh.type == "EMPTY"
+
+    def execute(self, context):
+        meshpoints = get_selected_meshes(type="EMPTY")
+        mesh_props = context.scene.mesh_properties
+
+        def meshpoint_format(name, idx):
+            return f"{name}.0-{i}" if mesh_props.duplicate_meshpoint_toggle else f"{name}.{i}"
+
+        for _ in range(2):
+            for i, meshpoint in enumerate(meshpoints):
+                name = mesh_props.meshpoint_name if mesh_props.meshpoint_type == "custom" else mesh_props.meshpoint_type
+                meshpoint.name = re.sub(r"\.\d{3}", "", meshpoint_format(name, i))
+        return {"FINISHED"}
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -99,17 +164,18 @@ class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True)
-        mesh = get_selected_mesh()
-        if not mesh or mesh is None:
-            col.label(text="Select a mesh...")
-        else:
-            col.label(text=f"Selected: {mesh.name}")
-            col.operator(
-                "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
-            )
-            col.separator(factor=1.5)
-            col.operator("sinsii.spawn_meshpoint", icon="EMPTY_AXIS")
-
+        col.label(text="Name")
+        row = col.row()
+        row.prop(context.scene.mesh_properties, "meshpoint_name")
+        row.prop(context.scene.mesh_properties, "meshpoint_type")
+        col.separator(factor=1.0)
+        row = col.row()
+        row.operator("sinsii.spawn_meshpoint", icon="EMPTY_AXIS")
+        row.operator("sinsii.format_meshpoints")
+        col.separator(factor=1.0)
+        col.prop(context.scene.mesh_properties, "duplicate_meshpoint_toggle")
+        col.separator(factor=1.0)
+        col.label(text=f"Selected meshpoints: {len(get_selected_meshes(type='EMPTY'))}")
 
 class SINSII_PT_Meshpoint_Turret(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Turret"
@@ -160,6 +226,7 @@ class SINSII_PT_Meshpoint(SINSII_Main_Panel, bpy.types.Panel):
         col.operator(
             "wm.url_open", text="See meshpoint orientation here", icon="URL"
         ).url = "https://i.imgur.com/VluXLbg.png"
+        col.label(text="Align your mesh towards wherever the Monkey Primitive points to")
         col.label(text="Note")
         col.label(
             text="If you add a dash (-) delimiter before a number the engine will ignore everything after it"
@@ -213,32 +280,38 @@ def flip_normals(mesh):
     except:
         pass
 
+class SINSII_OT_Sync_Empty_Color(bpy.types.Operator):
+    bl_label = "Synchronize Meshpoint Color"
+    bl_description = "Changes Blender Empty color to a cyan-like blue"
+    bl_idname = "sinsii.sync_color"
 
-# class SINSII_OT_Flip_Normals(bpy.types.Operator):
-#     bl_label = "Flip"
-#     bl_idname = "sinsii.flip_normals"
-
-#     def execute(self, context):
-#         mesh = get_selected_mesh()
-#         flip_normals(mesh)
-#         return {"FINISHED"}
+    def execute(self, context):
+        for theme in bpy.context.preferences.themes:
+            theme.view_3d.empty = MESHPOINT_COLOR
+        SETTINGS["has_synchronized_meshpoint_color"] = True
+        settings.save_settings()
+        return {"FINISHED"}
 
 
 class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Help"
+    bl_label = "Help" if not has_update else "Help ℹ"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 5
 
     def draw(self, context):
         col = self.layout.column(align=True)
-        col.label(text=f"Version: {','.join(map(str, bl_info['version']))}")
+        col.label(text=f"Version: {'.'.join(map(str, bl_info['version']))} {'' if not has_update else '- new version avaliable.'}")
         col.separator(factor=1.0)
-        col.operator("sinsii.updates", icon="URL")
+        col.operator("sinsii.updates", icon="URL", text="Check for updates" if not has_update else "Update now")
 
 
 class SINSII_OT_Generate_Buffs(bpy.types.Operator):
     bl_idname = "sinsii.create_buffs"
     bl_label = "Generate Buffs"
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
 
     def execute(self, context):
         has_center, has_above, has_aura = False, False, False
@@ -276,12 +349,13 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
     filename_ext = ".unit"
     filter_glob: bpy.props.StringProperty(default="*.unit", options={"HIDDEN"})
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
+
     def execute(self, context):
         mesh = get_selected_mesh()
 
-        if not bpy.context.mode == "OBJECT":
-            self.report({"WARNING"}, "Please enter into Object Mode before exporting")
-            return {"CANCELLED"}
         if not mesh or not mesh.type == "MESH":
             self.report({"WARNING"}, "You need to select a mesh before exporting")
             return {"CANCELLED"}
@@ -320,12 +394,16 @@ def apply_transforms(mesh):
 class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
     bl_idname = "sinsii.spawn_meshpoint"
     bl_label = "Spawn meshpoint"
+    bl_description = "Spawns an empty on the selected face/vertex"
 
     def execute(self, context):
         if not bpy.context.mode == "EDIT_MESH":
             self.report({"WARNING"}, "Make sure you are in edit mode")
             return {"CANCELLED"}
         mesh = get_selected_mesh()
+        if not mesh:
+            self.report({"WARNING"}, "Please select a mesh first")
+            return {"CANCELLED"}
         bpy.ops.object.editmode_toggle()
         apply_transforms(mesh)
         bpy.ops.object.editmode_toggle()
@@ -336,7 +414,7 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         create_empty(
             mesh=mesh,
             radius=radius / 2,
-            name="RENAME_ME",
+            name=context.scene.mesh_properties.meshpoint_name,
             empty_type="ARROWS",
             location=bpy.context.scene.cursor.location,
         )
@@ -392,11 +470,8 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
     bl_label = "Check for updates"
 
     def execute(self, context):
-
-        temp_dir = tempfile.gettempdir()
-
-        gh = Github_Downloader.initialize(temp_dir)
-        temp_path = gh.temp
+        temp_path = github.temp
+        github.fetch_latest_archive()
 
         current_files = set(get_file_list(CWD_PATH))
         temp_files = set(get_file_list(temp_path))
@@ -431,6 +506,9 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
                 else:
                     shutil.copy(os.path.join(temp_path, file), CWD_PATH)
             shutil.rmtree(temp_path)
+
+            SETTINGS["current_version"] = latest_version
+            settings.save_settings()
 
             self.report(
                 {"INFO"},
@@ -490,10 +568,10 @@ def get_active_material():
         return mesh.active_material
 
 
-def get_selected_meshes():
+def get_selected_meshes(type="MESH"):
     selected_meshes = []
     for mesh in bpy.context.selected_objects:
-        if mesh.type == "MESH":
+        if mesh.type == type:
             selected_meshes.append(mesh)
     return selected_meshes
 
@@ -606,6 +684,9 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
     bl_label = "Spawn shield mesh"
     bl_options = {"REGISTER"}
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
     def execute(self, context):
         mesh = get_selected_mesh()
 
@@ -786,6 +867,10 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
 
     files: CollectionProperty(type=bpy.types.PropertyGroup)
 
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
+
     def execute(self, context):
         os.makedirs(TEMP_TEXTURES_PATH, exist_ok=True)
         radius_arr = []
@@ -867,15 +952,12 @@ def join_meshes(meshes):
     bpy.ops.object.select_all(action="DESELECT")
     for mesh in sorted(meshes, key=lambda mesh: mesh.name.lower()):
         mesh.select_set(True)
-    bpy.ops.object.join()
+    if len(meshes) > 1:
+        bpy.ops.object.join()
     return bpy.context.view_layer.objects.active
 
 
 def export_mesh(self, mesh_name, export_dir):
-    if not bpy.context.mode == "OBJECT":
-        self.report({"WARNING"}, "Please enter into Object Mode before exporting")
-        return
-
     now = time.time()
 
     original_transforms_arr = []
@@ -980,7 +1062,7 @@ def export_mesh(self, mesh_name, export_dir):
 
     self.report(
         {"INFO"},
-        "Mesh exported successfully to: {}, \n Finished in: {:.6f}s".format(
+        "Mesh exported successfully to: {} - Finished in: {:.6f}s".format(
             self.filepath, time.time() - now
         ),
     )
@@ -999,6 +1081,17 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
     filename_ext = ""
 
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        try:
+            self.filepath = get_selected_mesh().name
+        except:
+            pass
+        return super().invoke(context, event)
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
 
     def execute(self, context):
         __ = self.filepath.rsplit("\\", 1)
@@ -1265,10 +1358,12 @@ classes = (
     SINSII_OT_Generate_Buffs,
     SINSII_OT_Check_For_Updates,
     SINSII_OT_Debug,
+    SINSII_OT_Sync_Empty_Color,
     SINSII_OT_Spawn_Meshpoint,
     SINSII_OT_Spawn_Shield_Mesh,
     SINSII_OT_Export_Spatial_Information,
     SINSII_PT_Panel,
+    SINSII_OT_Format_Meshpoints,
     SINSII_PT_Mesh_Point_Panel,
     SINSII_PT_Mesh_Panel,
     SINSII_PT_Documentation_Panel,

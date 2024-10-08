@@ -1,6 +1,5 @@
-import zipfile, os, shutil
+import zipfile, os, shutil, json
 from datetime import datetime
-from .helpers.cryptography import generate_hash_from_directory
 
 try:
     from urllib.request import Request, urlopen
@@ -8,27 +7,30 @@ except ImportError:
     from urllib2 import urlopen, Request, URLError
 
 
-class Github_Downloader:
+class Github:
     def __init__(self, dist):
-        self.url = "https://github.com"
+        self.dist = dist
         self.author = "largeBIGsnooze"
         self.repo = "sins2-blender-extension"
-        self.zipball = "archive/refs/heads/master.zip"
-        self.dist = dist
+        self.api = f"https://api.github.com/repos/{self.author}/{self.repo}"
         self.temp = os.path.join(self.dist, "sins2_extension-temp")
 
-    @staticmethod
-    def initialize(dist):
-        g = Github_Downloader(dist)
-        zip_file = os.path.join(g.temp, "master.zip")
-        g.fetch_latest_archive(zip_file)
-        return g
-
-    def fetch_latest_archive(self, zip_file):
-        url = f"{self.url}/{self.author}/{self.repo}/{self.zipball}"
-        response = urlopen(url)
-        os.makedirs(self.temp, exist_ok=True)
+    def fetch_latest_commit(self):
+        url = f"{self.api}/commits"
         try:
+            response = urlopen(url)
+            if response.getcode() == 200:
+                first_commit = json.loads(response.read())[0]["sha"]
+                return first_commit
+        except Exception as e:
+            print(f"Github.fetch_commits() failed Github API request: {e}")
+
+    def fetch_latest_archive(self):
+        zip_file = os.path.join(self.dist, "master.zip")
+        url = f"{self.api}/zipball"
+        try:
+            response = urlopen(url)
+            os.makedirs(self.temp, exist_ok=True)
             if response.getcode() == 200:
                 with open(zip_file, "wb") as f:
                     f.write(response.read())
