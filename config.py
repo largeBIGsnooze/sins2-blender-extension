@@ -1,13 +1,14 @@
 import json, os
 
-class AddonSettings():
+
+class AddonSettings:
     def __init__(self, filepath):
         self.filepath = filepath
         self.SETTINGS = {}
         self.DEFAULT_SETTINGS = {
             "has_synchronized_meshpoint_color": False,
             "is_first_installation": True,
-            "current_version": ""
+            "current_version": "",
         }
 
     def init(self):

@@ -1,8 +1,8 @@
 bl_info = {
     "name": "Sins II Extension",
-    "description": "Extension for importing and exporting meshes whilst leveraging official tooling",
+    "description": "Extension for importing and exporting Sins of a Solar Empire 2 meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (0, 8, 6),
+    "version": (0, 8, 7),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",

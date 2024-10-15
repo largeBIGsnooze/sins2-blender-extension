@@ -13,7 +13,9 @@ from .config import AddonSettings
 TEMP_DIR = tempfile.gettempdir()
 MESHPOINT_COLOR = (0.18039216101169586, 0.7686275243759155, 1.0)
 
-ADDON_SETTINGS_FILE = os.path.join(os.environ["LOCALAPPDATA"], "sins2", "sins2-blender-extension", "settings.json")
+ADDON_SETTINGS_FILE = os.path.join(
+    os.environ["LOCALAPPDATA"], "sins2", "sins2-blender-extension", "settings.json"
+)
 CWD_PATH = os.path.dirname(os.path.abspath(__file__))
 MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
@@ -76,6 +78,7 @@ if "is_first_installation" in SETTINGS:
 
 has_update = SETTINGS["current_version"] != latest_version
 
+
 class SINSII_Main_Panel:
 
     bl_space_type = "VIEW_3D"
@@ -113,7 +116,6 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
                     break
 
 
-
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Mesh"
     bl_options = {"DEFAULT_CLOSED"}
@@ -134,7 +136,6 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.operator("sinsii.export_spatial", icon="META_BALL")
 
 
-
 class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
     bl_idname = "sinsii.format_meshpoints"
     bl_label = "Format"
@@ -149,13 +150,22 @@ class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
         mesh_props = context.scene.mesh_properties
 
         def meshpoint_format(name, idx):
-            return f"{name}.0-{i}" if mesh_props.duplicate_meshpoint_toggle else f"{name}.{i}"
+            return (
+                f"{name}.0-{i}"
+                if mesh_props.duplicate_meshpoint_toggle
+                else f"{name}.{i}"
+            )
 
         for _ in range(2):
             for i, meshpoint in enumerate(meshpoints):
-                name = mesh_props.meshpoint_name if mesh_props.meshpoint_type == "custom" else mesh_props.meshpoint_type
+                name = (
+                    mesh_props.meshpoint_name
+                    if mesh_props.meshpoint_type == "custom"
+                    else mesh_props.meshpoint_type
+                )
                 meshpoint.name = re.sub(r"\.\d{3}", "", meshpoint_format(name, i))
         return {"FINISHED"}
+
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -176,6 +186,7 @@ class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
         col.prop(context.scene.mesh_properties, "duplicate_meshpoint_toggle")
         col.separator(factor=1.0)
         col.label(text=f"Selected meshpoints: {len(get_selected_meshes(type='EMPTY'))}")
+
 
 class SINSII_PT_Meshpoint_Turret(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Turret"
@@ -226,7 +237,9 @@ class SINSII_PT_Meshpoint(SINSII_Main_Panel, bpy.types.Panel):
         col.operator(
             "wm.url_open", text="See meshpoint orientation here", icon="URL"
         ).url = "https://i.imgur.com/VluXLbg.png"
-        col.label(text="Align your mesh towards wherever the Monkey Primitive points to")
+        col.label(
+            text="Align your mesh towards wherever the Monkey Primitive points to"
+        )
         col.label(text="Note")
         col.label(
             text="If you add a dash (-) delimiter before a number the engine will ignore everything after it"
@@ -280,6 +293,7 @@ def flip_normals(mesh):
     except:
         pass
 
+
 class SINSII_OT_Sync_Empty_Color(bpy.types.Operator):
     bl_label = "Synchronize Meshpoint Color"
     bl_description = "Changes Blender Empty color to a cyan-like blue"
@@ -300,9 +314,15 @@ class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True)
-        col.label(text=f"Version: {'.'.join(map(str, bl_info['version']))} {'' if not has_update else '- new version avaliable.'}")
+        col.label(
+            text=f"Version: {'.'.join(map(str, bl_info['version']))} {'' if not has_update else '- new version avaliable.'}"
+        )
         col.separator(factor=1.0)
-        col.operator("sinsii.updates", icon="URL", text="Check for updates" if not has_update else "Update now")
+        col.operator(
+            "sinsii.updates",
+            icon="URL",
+            text="Check for updates" if not has_update else "Update now",
+        )
 
 
 class SINSII_OT_Generate_Buffs(bpy.types.Operator):
@@ -687,6 +707,7 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return context.mode == "OBJECT"
+
     def execute(self, context):
         mesh = get_selected_mesh()
 
@@ -805,27 +826,32 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
 
     radius = get_bounding_box(obj)[0]
 
-    for meshpoint in meshpoints:
+    name_indices = {}
+    for i, meshpoint in enumerate(meshpoints):
         name = meshpoint["name"]
         pos = meshpoint["position"]
         rot = meshpoint["rotation"]
 
         bpy.ops.object.empty_add(type="ARROWS")
+
         empty = bpy.context.object
         empty.empty_display_size = radius * 0.05
-        empty.name = name
+        if name in name_indices:
+            name_indices[name] += 1
+            empty.name = f"{name}-{name_indices[name]}"
+        else:
+            name_indices[name] = 0
+            empty.name = name
         empty.location = GAME_MATRIX @ Vector((pos[0], pos[1], -pos[2]))
         empty.parent = obj
         empty.rotation_euler = (
-            GAME_MATRIX.transposed()
-            @ Matrix(
+            Matrix(
                 (
-                    (rot[0], rot[1], rot[2]),
-                    (rot[3], rot[4], rot[5]),
-                    (rot[6], rot[7], rot[8]),
+                    (rot[0], rot[3], rot[6]),
+                    (rot[2], rot[5], -rot[8]),
+                    (-rot[1], rot[4], rot[7]),
                 )
             ).to_4x4()
-            @ MESHPOINT_MATRIX
         ).to_euler()
 
     flip_normals(obj)
@@ -847,8 +873,10 @@ def import_mesh(self, file_path):
         # /\__/ /_| |_| |\  |/\__/ /   ./ /___
         # \____/ \___/\_| \_/\____/    \_____/
 
-        buffer = BinaryReader.open(file_path)
-        reader = BinaryReader.initialize_from(buffer)
+        reader = BinaryReader.initialize_from(mesh_file=file_path)
+
+        if bpy.context.space_data.shading.type != "MATERIAL":
+            bpy.context.space_data.shading.type = "MATERIAL"
     except Exception as e:
         self.report({"ERROR"}, f"Mesh import failed.: {e}")
         return {"CANCELLED"}
@@ -984,6 +1012,10 @@ def export_mesh(self, mesh_name, export_dir):
         )
         return
 
+    if not mesh_name:
+        self.report({"ERROR"}, "Invalid mesh name")
+        return
+
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.separate(type="MATERIAL")
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -1014,15 +1046,28 @@ def export_mesh(self, mesh_name, export_dir):
 
     if meshbuilder_err and not meshbuilder_err.strip().endswith("not found"):
         self.report({"ERROR"}, meshbuilder_err)
+        clear_leftovers(export_dir, mesh_name)
         return
     else:
         print(meshbuilder_err)
 
-    buffer = BinaryReader.open(os.path.join(export_dir, f"{mesh_name}.mesh"))
-    reader = BinaryReader.initialize_from(buffer)
+    reader = BinaryReader.initialize_from(
+        mesh_file=os.path.join(export_dir, f"{mesh_name}.mesh")
+    )
+    clean_mesh_binary(reader, export_dir, mesh_name, mesh)
+    post_export_operations(export_dir, mesh_name, mesh)
 
+    self.report(
+        {"INFO"},
+        "Mesh exported successfully to: {} - Finished in: {:.2f}s".format(
+            f"{self.filepath}.mesh", time.time() - now
+        ),
+    )
+
+
+def clean_mesh_binary(reader, export_dir, mesh_name, mesh):
     curr_offset = reader.meshpoint_offset_start
-    new_buffer = bytearray(buffer)
+    new_buffer = bytearray(reader.buffer)
     for meshpoint in mesh.children:
         if meshpoint.hide_get():
             continue
@@ -1058,15 +1103,6 @@ def export_mesh(self, mesh_name, export_dir):
     with open(os.path.join(export_dir, f"{mesh_name}.mesh"), "wb") as f:
         f.write(new_buffer)
 
-    post_export_operations(export_dir, mesh_name, mesh)
-
-    self.report(
-        {"INFO"},
-        "Mesh exported successfully to: {} - Finished in: {:.6f}s".format(
-            self.filepath, time.time() - now
-        ),
-    )
-
 
 def post_export_operations(export_dir, mesh_name, mesh):
     clear_leftovers(export_dir, mesh_name)
@@ -1096,7 +1132,7 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         __ = self.filepath.rsplit("\\", 1)
         EXPORT_DIR = __[0]
-        MESH_NAME = __[1].lower()
+        MESH_NAME = __[1].lower().strip()
 
         try:
             export_mesh(self, MESH_NAME, EXPORT_DIR)

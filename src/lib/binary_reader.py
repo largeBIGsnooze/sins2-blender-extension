@@ -1,5 +1,5 @@
 from struct import pack, unpack
-import json
+import json, os
 from .helpers.mesh import Meshpoint, Primitive, Vertex
 
 
@@ -50,12 +50,6 @@ class BinaryReader:
         result[0] = self.vector3f()
         result[1] = self.float()[0]
         return result
-
-    @staticmethod
-    def open(filepath):
-        with open(filepath, "rb") as f:
-            buffer = f.read()
-        return buffer
 
     def parse_vertices(self):
         vertex_count = self.integer()
@@ -120,8 +114,10 @@ class BinaryReader:
             self.mesh_data["materials"].append(name)
 
     @staticmethod
-    def initialize_from(buffer):
+    def initialize_from(mesh_file):
         reader = BinaryReader()
+        with open(mesh_file, "rb") as f:
+            buffer = f.read()
         reader.buffer = buffer
         reader.string(4)  # header
         reader.boolean()  # is_skinned
