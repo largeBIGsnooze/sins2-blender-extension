@@ -42,6 +42,8 @@ class Properties(bpy.types.PropertyGroup):
         name="Duplicate meshpoints", default=False
     )
 
+    toggle_teamcolor: bpy.props.BoolProperty(name="Enable Team Color", default=True)
+
     meshpoint_type: bpy.props.EnumProperty(
         items=[
             ("", "Meshpoint Types", ""),

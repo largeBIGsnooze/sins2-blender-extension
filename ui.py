@@ -99,11 +99,16 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         col.separator(factor=0.5)
         box = col.box()
         box.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
-        box.label(text="Primary, Secondary, Emissive")
-        row = box.row()
-        row.prop(context.scene.mesh_properties, "team_color_1")
-        row.prop(context.scene.mesh_properties, "team_color_2")
-        row.prop(context.scene.mesh_properties, "team_color_3")
+        if context.scene.mesh_properties.toggle_teamcolor:
+            box.label(text="Primary, Secondary, Emissive")
+            row = box.row()
+            row.prop(context.scene.mesh_properties, "team_color_1")
+            row.prop(context.scene.mesh_properties, "team_color_2")
+            row.prop(context.scene.mesh_properties, "team_color_3")
+        else:
+            box.label(text="Emissive")
+            box.prop(context.scene.mesh_properties, "team_color_3")
+
         if SETTINGS["has_synchronized_meshpoint_color"] == False:
             col = col.column()
             col.separator(factor=1.0)
@@ -114,6 +119,8 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
                     SETTINGS["has_synchronized_meshpoint_color"] = False
                     settings.save_settings()
                     break
+
+        box.prop(context.scene.mesh_properties, "toggle_teamcolor")
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -804,12 +811,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
         if not os.path.exists(mesh_materials_path):
             new_mat = bpy.data.materials.new(name=material)
         else:
-            new_mat = create_shader_nodes(
-                material,
-                mesh_materials_path,
-                textures_path,
-                run_texconv,
-            )
+            new_mat = create_shader_nodes(material, mesh_materials_path, textures_path)
         mesh.materials.append(new_mat)
 
     for primitive in primitives:
@@ -877,6 +879,10 @@ def import_mesh(self, file_path):
 
         if bpy.context.space_data.shading.type != "MATERIAL":
             bpy.context.space_data.shading.type = "MATERIAL"
+            bpy.context.space_data.shading.use_compositor = "ALWAYS"
+
+        create_composite_nodes()
+
     except Exception as e:
         self.report({"ERROR"}, f"Mesh import failed.: {e}")
         return {"CANCELLED"}
@@ -1149,23 +1155,27 @@ def set_node_position(node, x, y):
     node.location = (x * 100, y * -100)
 
 
-def add_driver(node_id, node, name, data_path):
+def add_color_ramp_driver(node_id, node, name, data_path):
     is_emissive = 2 if name == "Emissive" else 1
     for i, driver in enumerate(
         node_id.driver_add(
             f'nodes["{node.name}"].color_ramp.elements[{is_emissive}].color'
         )
     ):
-        driver = driver.driver
-        driver.type = "SUM"
-        var = driver.variables.new()
-        var.name = name
-        var.targets[0].id_type = "SCENE"
-        var.targets[0].id = bpy.context.scene
-        var.targets[0].data_path = f"{data_path}[{i}]"
+        add_driver(node_id, node, name, f"{data_path}[{i}]", driver.driver)
 
 
-def load_texture(node, texture, run_texconv):
+def add_driver(node_id, node, name, data_path, driver):
+    driver = driver
+    driver.type = "SUM"
+    var = driver.variables.new()
+    var.name = name
+    var.targets[0].id_type = "SCENE"
+    var.targets[0].id = bpy.context.scene
+    var.targets[0].data_path = data_path
+
+
+def load_texture(node, texture):
     try:
         # convert to usable formats for blender
         tex_file = os.path.basename(texture)
@@ -1207,7 +1217,25 @@ def load_mesh_material(name, filepath, textures_path):
     ]
 
 
-def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_texconv):
+def create_composite_nodes():
+    bpy.context.scene.use_nodes = True
+    node_tree = bpy.context.scene.node_tree
+    scene = bpy.data.scenes["Scene"]
+
+    if not "Glare" in scene.node_tree.nodes:
+        bloom_node = node_tree.nodes.new(type="CompositorNodeGlare")
+        bloom_node.glare_type = "BLOOM"
+        bloom_node.threshold = 75
+        bloom_node.quality = "HIGH"
+
+        composite_node = scene.node_tree.nodes["Composite"]
+        render_layers = scene.node_tree.nodes["Render Layers"]
+
+        node_tree.links.new(bloom_node.outputs["Image"], composite_node.inputs["Image"])
+        node_tree.links.new(render_layers.outputs["Image"], bloom_node.inputs["Image"])
+
+
+def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     textures = load_mesh_material(material_name, mesh_materials_path, textures_path)
 
     material = bpy.data.materials.new(name=material_name)
@@ -1221,22 +1249,22 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_t
     _clr = nodes.new(type="ShaderNodeTexImage")
     set_node_position(_clr, -16, 0)
     _clr.label = "_clr"
-    load_texture(_clr, textures[0], run_texconv)
+    load_texture(_clr, textures[0])
 
     _orm = nodes.new(type="ShaderNodeTexImage")
     set_node_position(_orm, -16, 2)
     _orm.label = "_orm"
-    load_texture(_orm, textures[1], run_texconv)
+    load_texture(_orm, textures[1])
 
     _msk = nodes.new(type="ShaderNodeTexImage")
     set_node_position(_msk, -16, 4)
     _msk.label = "_msk"
-    load_texture(_msk, textures[2], run_texconv)
+    load_texture(_msk, textures[2])
 
     _nrm = nodes.new(type="ShaderNodeTexImage")
     set_node_position(_nrm, -16, 6)
     _nrm.label = "_nrm"
-    load_texture(_nrm, textures[3], run_texconv)
+    load_texture(_nrm, textures[3])
 
     mapping_node = nodes.new(type="ShaderNodeMapping")
     set_node_position(mapping_node, -19, 0)
@@ -1253,6 +1281,18 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_t
     set_node_position(mix_node_2, -8, -2)
     mix_node_2.data_type = "RGBA"
     mix_node_2.blend_type = "VALUE"
+
+    mix_node_team_color = nodes.new(type="ShaderNodeMix")
+    set_node_position(mix_node_team_color, -6, -5)
+    mix_node_team_color.data_type = "RGBA"
+    mix_node_team_color.blend_type = "MIX"
+    add_driver(
+        node_id,
+        mix_node_team_color,
+        "Toggle Team Color",
+        "mesh_properties.toggle_teamcolor",
+        node_id.driver_add(f'nodes["{mix_node_team_color.name}"].inputs[0].default_value').driver
+    )
 
     clamp_node = nodes.new(type="ShaderNodeClamp")
     clamp_node.inputs[1].default_value = 0.135
@@ -1274,19 +1314,25 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_t
     color_ramp_2 = nodes.new(type="ShaderNodeValToRGB")
     set_node_position(color_ramp_2, -7, 5)
     color_ramp_2.color_ramp.elements[0].color = (0, 0, 0, 1)
-    add_driver(node_id, color_ramp_2, "Team Color - 1", "mesh_properties.team_color_1")
+    add_color_ramp_driver(
+        node_id, color_ramp_2, "Team Color - 1", "mesh_properties.team_color_1"
+    )
 
     color_ramp_3 = nodes.new(type="ShaderNodeValToRGB")
     set_node_position(color_ramp_3, -7, 7)
     color_ramp_3.color_ramp.elements[0].color = (0, 0, 0, 1)
-    add_driver(node_id, color_ramp_3, "Team Color - 2", "mesh_properties.team_color_2")
+    add_color_ramp_driver(
+        node_id, color_ramp_3, "Team Color - 2", "mesh_properties.team_color_2"
+    )
 
     color_ramp_4 = nodes.new(type="ShaderNodeValToRGB")
     set_node_position(color_ramp_4, -7, 9)
     color_ramp_4.color_ramp.elements[0].color = (0, 0, 0, 1)
     color_ramp_4.color_ramp.elements.new(position=0.5)
     color_ramp_4.color_ramp.elements[1].color = (0, 0, 0, 1)
-    add_driver(node_id, color_ramp_4, "Emissive", "mesh_properties.team_color_3")
+    add_color_ramp_driver(
+        node_id, color_ramp_4, "Emissive", "mesh_properties.team_color_3"
+    )
 
     separate_color_node_3 = nodes.new(type="ShaderNodeSeparateColor")
     set_node_position(separate_color_node_3, -13, 6)
@@ -1341,10 +1387,14 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path, run_t
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    principled_node.inputs[27].default_value = 10
+    principled_node.inputs[27].default_value = 100
 
     links = material.node_tree.links
-    links.new(mix_node_1.outputs["Result"], principled_node.inputs["Base Color"])
+    links.new(_clr.outputs["Color"], mix_node_team_color.inputs["A"])
+    links.new(
+        mix_node_team_color.outputs["Result"], principled_node.inputs["Base Color"]
+    )
+    links.new(mix_node_1.outputs["Result"], mix_node_team_color.inputs["B"])
     links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
     links.new(mix_node_2.outputs["Result"], mix_node_1.inputs["B"])
     links.new(_clr.outputs["Color"], mix_node_2.inputs["B"])
