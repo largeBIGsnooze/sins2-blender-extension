@@ -881,7 +881,8 @@ def import_mesh(self, file_path):
             bpy.context.space_data.shading.type = "MATERIAL"
             bpy.context.space_data.shading.use_compositor = "ALWAYS"
 
-        create_composite_nodes()
+        if (4, 2, 0) <= bpy.app.version:
+            create_composite_nodes()
 
     except Exception as e:
         self.report({"ERROR"}, f"Mesh import failed.: {e}")
