@@ -1010,38 +1010,47 @@ def post_process_icon(image_path):
         width = img.size[0]
         height = img.size[1]
         
-        # Create new image for result
+        # Create new image with smaller dimensions
+        new_width = 512  # Reduced from 1024
+        new_height = 512
         result = bpy.data.images.new(
             name="processed_icon",
-            width=width,
-            height=height,
+            width=new_width,
+            height=new_height,
             alpha=True
         )
         
-        # Convert pixels to 2D array for easier neighbor checking
+        # Convert pixels to 2D array with height information
         pixel_array = []
         for y in range(height):
             row = []
             for x in range(width):
                 idx = (y * width + x) * 4
                 r, g, b, a = pixels[idx:idx+4]
-                gray = (r + g + b) / 3
+                # Use blue channel for height information (assuming default Blender orientation)
+                height_value = b
                 alpha = a > 0
-                row.append((gray, alpha))
+                row.append((height_value, alpha))
             pixel_array.append(row)
         
-        # Process pixels with border detection
+        # Process pixels with thicker border and height-based details
         new_pixels = []
-        for y in range(height):
-            for x in range(width):
-                gray, alpha = pixel_array[y][x]
+        scale_x = width / new_width
+        scale_y = height / new_height
+        
+        for y in range(new_height):
+            for x in range(new_width):
+                # Map to original coordinates
+                orig_x = int(x * scale_x)
+                orig_y = int(y * scale_y)
+                height_val, alpha = pixel_array[orig_y][orig_x]
                 
-                # Check for border (any transparent neighbor)
+                # Check for border (thicker border check)
                 is_border = False
                 if alpha:
-                    for dy in [-1, 0, 1]:
-                        for dx in [-1, 0, 1]:
-                            ny, nx = y + dy, x + dx
+                    for dy in range(-2, 3):  # Increased range for thicker border
+                        for dx in range(-2, 3):
+                            ny, nx = orig_y + dy, orig_x + dx
                             if (0 <= ny < height and 0 <= nx < width and 
                                 not pixel_array[ny][nx][1]):  # neighbor is transparent
                                 is_border = True
@@ -1049,10 +1058,23 @@ def post_process_icon(image_path):
                         if is_border:
                             break
                 
+                # Detect height-based detail lines
+                is_detail = False
+                if alpha and not is_border:
+                    for dy in [-1, 0, 1]:
+                        for dx in [-1, 0, 1]:
+                            ny, nx = orig_y + dy, orig_x + dx
+                            if (0 <= ny < height and 0 <= nx < width and 
+                                abs(pixel_array[ny][nx][0] - height_val) > 0.1):  # Height difference threshold
+                                is_detail = True
+                                break
+                        if is_detail:
+                            break
+                
                 if alpha:  # Non-transparent pixel
                     if is_border:  # Border pixels become black
                         new_pixels.extend([0, 0, 0, 1])
-                    elif gray < 0.2:  # Dark areas become black (internal details)
+                    elif is_detail:  # Height-based detail lines become black
                         new_pixels.extend([0, 0, 0, 1])
                     else:  # Everything else becomes white
                         new_pixels.extend([1, 1, 1, 1])
@@ -1063,17 +1085,6 @@ def post_process_icon(image_path):
         result.pixels = new_pixels
         
         # Save result
-        result.save_render(image_path)
-        
-        # Clean up
-        bpy.data.images.remove(img)
-        bpy.data.images.remove(result)
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error in post-processing: {str(e)}")
-        return False
         result.save_render(image_path)
         
         # Clean up
