@@ -997,6 +997,96 @@ def join_meshes(meshes):
     return bpy.context.view_layer.objects.active
 
 
+def post_process_icon(image_path):
+    """Convert render to icon using Blender's built-in image processing"""
+    try:
+        # Load the rendered image
+        img = bpy.data.images.load(image_path, check_existing=True)
+        if img is None:
+            return False
+            
+        # Get image pixels
+        pixels = list(img.pixels[:])
+        width = img.size[0]
+        height = img.size[1]
+        
+        # Create new image for result
+        result = bpy.data.images.new(
+            name="processed_icon",
+            width=width,
+            height=height,
+            alpha=True
+        )
+        
+        # Convert pixels to 2D array for easier neighbor checking
+        pixel_array = []
+        for y in range(height):
+            row = []
+            for x in range(width):
+                idx = (y * width + x) * 4
+                r, g, b, a = pixels[idx:idx+4]
+                gray = (r + g + b) / 3
+                alpha = a > 0
+                row.append((gray, alpha))
+            pixel_array.append(row)
+        
+        # Process pixels with border detection
+        new_pixels = []
+        for y in range(height):
+            for x in range(width):
+                gray, alpha = pixel_array[y][x]
+                
+                # Check for border (any transparent neighbor)
+                is_border = False
+                if alpha:
+                    for dy in [-1, 0, 1]:
+                        for dx in [-1, 0, 1]:
+                            ny, nx = y + dy, x + dx
+                            if (0 <= ny < height and 0 <= nx < width and 
+                                not pixel_array[ny][nx][1]):  # neighbor is transparent
+                                is_border = True
+                                break
+                        if is_border:
+                            break
+                
+                if alpha:  # Non-transparent pixel
+                    if is_border:  # Border pixels become black
+                        new_pixels.extend([0, 0, 0, 1])
+                    elif gray < 0.2:  # Dark areas become black (internal details)
+                        new_pixels.extend([0, 0, 0, 1])
+                    else:  # Everything else becomes white
+                        new_pixels.extend([1, 1, 1, 1])
+                else:  # Transparent pixels stay transparent
+                    new_pixels.extend([0, 0, 0, 0])
+        
+        # Apply new pixels
+        result.pixels = new_pixels
+        
+        # Save result
+        result.save_render(image_path)
+        
+        # Clean up
+        bpy.data.images.remove(img)
+        bpy.data.images.remove(result)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error in post-processing: {str(e)}")
+        return False
+        result.save_render(image_path)
+        
+        # Clean up
+        bpy.data.images.remove(img)
+        bpy.data.images.remove(result)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error in post-processing: {str(e)}")
+        return False
+
+
 def export_mesh(self, mesh_name, export_dir):
     now = time.time()
 
@@ -1529,8 +1619,12 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             context.scene.render.resolution_x = 1024
             context.scene.render.resolution_y = 1024
             context.scene.render.film_transparent = True  # Enable transparency
+            context.scene.render.image_settings.file_format = 'PNG'
+            context.scene.render.image_settings.color_mode = 'RGBA'
+            context.scene.render.image_settings.color_depth = '8'
             
-            # Set transparent background
+            # Set world background to transparent
+            context.scene.world.use_nodes = True
             context.scene.world.node_tree.nodes["Background"].inputs[0].default_value = (0, 0, 0, 0)
             
             # Setup materials for icon style
@@ -1551,26 +1645,24 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                     
                     # Create nodes
                     output = nodes.new(type='ShaderNodeOutputMaterial')
-                    mix_shader = nodes.new(type='ShaderNodeMixShader')
+                    emission = nodes.new(type='ShaderNodeEmission')
                     transparent = nodes.new(type='ShaderNodeBsdfTransparent')
-                    diffuse = nodes.new(type='ShaderNodeBsdfDiffuse')
-                    invert = nodes.new(type='ShaderNodeInvert')
-                    geometry = nodes.new(type='ShaderNodeNewGeometry')
-                    color_ramp = nodes.new(type='ShaderNodeValToRGB')
+                    mix_shader = nodes.new(type='ShaderNodeMixShader')
                     
-                    # Setup color ramp for edge detection
-                    color_ramp.color_ramp.elements[0].position = 0.6
-                    color_ramp.color_ramp.elements[0].color = (1, 1, 1, 1)  # White
-                    color_ramp.color_ramp.elements[1].position = 0.8
-                    color_ramp.color_ramp.elements[1].color = (0, 0, 0, 1)  # Black
+                    # Position nodes
+                    output.location = (300, 0)
+                    mix_shader.location = (100, 0)
+                    emission.location = (-100, -100)
+                    transparent.location = (-100, 100)
+                    
+                    # Setup emission for solid silhouette
+                    emission.inputs[0].default_value = (0.8, 0.8, 0.8, 1)  # Light gray for better post-processing
+                    emission.inputs[1].default_value = 1.0  # Emission strength
                     
                     # Setup connections
-                    links.new(geometry.outputs["Backfacing"], color_ramp.inputs["Fac"])
-                    links.new(color_ramp.outputs["Color"], diffuse.inputs["Color"])
-                    links.new(geometry.outputs["Backfacing"], mix_shader.inputs["Fac"])
                     links.new(transparent.outputs[0], mix_shader.inputs[1])
-                    links.new(diffuse.outputs[0], mix_shader.inputs[2])
-                    links.new(mix_shader.outputs[0], output.inputs["Surface"])
+                    links.new(emission.outputs[0], mix_shader.inputs[2])
+                    links.new(mix_shader.outputs[0], output.inputs[0])
                     
                     # Assign material
                     obj.active_material = icon_mat
@@ -1585,7 +1677,11 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             # Perform render
             bpy.ops.render.render(write_still=True)
             
-            self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
+            # Post-process the render
+            if post_process_icon(context.scene.render.filepath):
+                self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
+            else:
+                self.report({'WARNING'}, f"Render saved but post-processing failed: {context.scene.render.filepath}")
             
         except Exception as e:
             print(f"ERROR during render: {str(e)}")
