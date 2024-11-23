@@ -1488,6 +1488,9 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
         original_camera = context.scene.camera
         original_engine = context.scene.render.engine
         original_samples = context.scene.cycles.samples
+        original_film_exposure = context.scene.view_settings.exposure
+        original_background = context.scene.world.node_tree.nodes["Background"].inputs[0].default_value
+        original_film_transparent = context.scene.render.film_transparent
         
         try:
             mesh = get_selected_mesh()
@@ -1495,15 +1498,11 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                 self.report({'ERROR'}, "No mesh selected!")
                 return {'CANCELLED'}
                 
-            print(f"Selected mesh: {mesh.name}")
-            
             # Create camera
-            print("Creating camera...")
             cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
             cam_data.type = 'ORTHO'
             
             # Calculate bounding box
-            print("Calculating bounding box...")
             try:
                 bounding_sphere_radius, center_x, center_y = get_bounding_box(mesh)
                 if not bounding_sphere_radius or bounding_sphere_radius <= 0:
@@ -1515,8 +1514,6 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             # Setup camera
             cam_obj = bpy.data.objects.new('Top_Down_Camera', cam_data)
             context.scene.collection.objects.link(cam_obj)
-            
-            # Position camera directly above mesh
             cam_obj.location = (
                 mesh.location.x,
                 mesh.location.y,
@@ -1524,34 +1521,71 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             )
             cam_obj.rotation_euler = (0, 0, 0)
             cam_data.ortho_scale = bounding_sphere_radius * 2.2
-            
-            # Set as active camera
             context.scene.camera = cam_obj
             
-            # Setup render settings
+            # Setup render settings for icon-style output
             context.scene.render.engine = 'CYCLES'
-            context.scene.cycles.samples = 32  # Lower sample count for faster render
-            context.scene.render.resolution_x = 1920
-            context.scene.render.resolution_y = 1920
+            context.scene.cycles.samples = 64
+            context.scene.render.resolution_x = 1024
+            context.scene.render.resolution_y = 1024
+            context.scene.render.film_transparent = True  # Enable transparency
+            
+            # Set transparent background
+            context.scene.world.node_tree.nodes["Background"].inputs[0].default_value = (0, 0, 0, 0)
+            
+            # Setup materials for icon style
+            original_materials = {}
+            for obj in context.scene.objects:
+                if obj.type == 'MESH':
+                    # Store original materials
+                    original_materials[obj] = obj.active_material
+                    
+                    # Create new material for icon rendering
+                    icon_mat = bpy.data.materials.new(name="Icon_Material")
+                    icon_mat.use_nodes = True
+                    nodes = icon_mat.node_tree.nodes
+                    links = icon_mat.node_tree.links
+                    
+                    # Clear default nodes
+                    nodes.clear()
+                    
+                    # Create nodes
+                    output = nodes.new(type='ShaderNodeOutputMaterial')
+                    mix_shader = nodes.new(type='ShaderNodeMixShader')
+                    transparent = nodes.new(type='ShaderNodeBsdfTransparent')
+                    diffuse = nodes.new(type='ShaderNodeBsdfDiffuse')
+                    invert = nodes.new(type='ShaderNodeInvert')
+                    geometry = nodes.new(type='ShaderNodeNewGeometry')
+                    color_ramp = nodes.new(type='ShaderNodeValToRGB')
+                    
+                    # Setup color ramp for edge detection
+                    color_ramp.color_ramp.elements[0].position = 0.6
+                    color_ramp.color_ramp.elements[0].color = (1, 1, 1, 1)  # White
+                    color_ramp.color_ramp.elements[1].position = 0.8
+                    color_ramp.color_ramp.elements[1].color = (0, 0, 0, 1)  # Black
+                    
+                    # Setup connections
+                    links.new(geometry.outputs["Backfacing"], color_ramp.inputs["Fac"])
+                    links.new(color_ramp.outputs["Color"], diffuse.inputs["Color"])
+                    links.new(geometry.outputs["Backfacing"], mix_shader.inputs["Fac"])
+                    links.new(transparent.outputs[0], mix_shader.inputs[1])
+                    links.new(diffuse.outputs[0], mix_shader.inputs[2])
+                    links.new(mix_shader.outputs[0], output.inputs["Surface"])
+                    
+                    # Assign material
+                    obj.active_material = icon_mat
             
             # Setup output path
             output_path = os.path.join(os.path.expanduser("~"), "Documents", "Sins2_Renders")
             os.makedirs(output_path, exist_ok=True)
-            
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"{mesh.name}_top_down_{timestamp}.png"
+            filename = f"{mesh.name}_icon_{timestamp}.png"
             context.scene.render.filepath = os.path.join(output_path, filename)
             
-            # Ensure all objects are visible in render
-            for obj in context.scene.objects:
-                obj.hide_render = False
-            
             # Perform render
-            print("Starting render...")
             bpy.ops.render.render(write_still=True)
-            print("Render completed!")
             
-            self.report({'INFO'}, f"Render saved to: {context.scene.render.filepath}")
+            self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
             
         except Exception as e:
             print(f"ERROR during render: {str(e)}")
@@ -1566,6 +1600,18 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             context.scene.camera = original_camera
             context.scene.render.engine = original_engine
             context.scene.cycles.samples = original_samples
+            context.scene.view_settings.exposure = original_film_exposure
+            context.scene.world.node_tree.nodes["Background"].inputs[0].default_value = original_background
+            context.scene.render.film_transparent = original_film_transparent
+            
+            # Restore original materials
+            for obj, material in original_materials.items():
+                obj.active_material = material
+            
+            # Clean up temporary materials
+            for material in bpy.data.materials:
+                if material.name.startswith("Icon_Material"):
+                    bpy.data.materials.remove(material)
             
             # Clean up temporary camera
             if 'cam_obj' in locals():
