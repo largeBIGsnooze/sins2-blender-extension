@@ -1402,7 +1402,7 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    # Removing this fixed an issue loading the materials from the dds files. Idk why.
+    # Removing this fixed an issue loading the materials from the dds files. Idk why this was here.
     # Set emissive strength to 100?
     # principled_node.inputs[27].default_value = 100
 
