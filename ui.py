@@ -125,6 +125,7 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         # Render button
         layout = self.layout
         layout.separator()
+        layout.operator("sinsii.render_top_down", icon='RENDER_STILL')
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -133,35 +134,18 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_order = 3
 
     def draw(self, context):
-        layout = self.layout
-        col = layout.column(align=True)
-        mesh = get_selected_mesh()
-        
-        # Icon generation settings
-        box = layout.box()
-        box.label(text="Icon Generation", icon='RENDER_STILL')
-        
-        col = box.column(align=True)
-        col.prop(context.scene.mesh_properties, "icon_size")
-        col.prop(context.scene.mesh_properties, "icon_zoom")
-        col.prop(context.scene.mesh_properties, "icon_border_thickness")
-        col.prop(context.scene.mesh_properties, "icon_height_threshold")
-        
-        col.separator()
-        
-        if not mesh or mesh.type != "MESH":
-            layout.label(text="Select a mesh...")
-            return
-
-        col.operator("sinsii.render_top_down", icon='RENDER_STILL')
-            
         col = self.layout.column(align=True)
-        col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
-        col.operator(
-            "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
-        )
-        col.separator(factor=0.5)
-        col.operator("sinsii.export_spatial", icon="META_BALL")
+        mesh = get_selected_mesh()
+        if not mesh or mesh.type != "MESH":
+            col.label(text="Select a mesh...")
+        else:
+            col.label(text=f"Selected: {mesh.name}")
+            col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
+            col.operator(
+                "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
+            )
+            col.separator(factor=0.5)
+            col.operator("sinsii.export_spatial", icon="META_BALL")
 
 
 class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
@@ -1013,7 +997,7 @@ def join_meshes(meshes):
     return bpy.context.view_layer.objects.active
 
 
-def post_process_icon(image_path, height_threshold):
+def post_process_icon(image_path):
     """Convert render to icon using Blender's built-in image processing"""
     try:
         # Load the rendered image
@@ -1049,7 +1033,7 @@ def post_process_icon(image_path, height_threshold):
                 row.append((height_value, alpha))
             pixel_array.append(row)
         
-        # Process pixels with height-based details using custom threshold
+        # Process pixels with thicker border and height-based details
         new_pixels = []
         scale_x = width / new_width
         scale_y = height / new_height
@@ -1081,7 +1065,7 @@ def post_process_icon(image_path, height_threshold):
                         for dx in [-1, 0, 1]:
                             ny, nx = orig_y + dy, orig_x + dx
                             if (0 <= ny < height and 0 <= nx < width and 
-                                abs(pixel_array[ny][nx][0] - height_val) > height_threshold):
+                                abs(pixel_array[ny][nx][0] - height_val) > 0.005):  # Height difference threshold
                                 is_detail = True
                                 break
                         if is_detail:
@@ -1601,9 +1585,6 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
     def execute(self, context):
         print("\nStarting top-down render...")
         
-        # Initialize storage for original materials
-        original_materials = {}
-        
         # Store original settings
         original_camera = context.scene.camera
         original_engine = context.scene.render.engine
@@ -1617,7 +1598,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             if not mesh:
                 self.report({'ERROR'}, "No mesh selected!")
                 return {'CANCELLED'}
-            
+                
             # Create camera
             cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
             cam_data.type = 'ORTHO'
@@ -1631,29 +1612,23 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                 self.report({'ERROR'}, f"Failed to calculate mesh bounds: {str(e)}")
                 return {'CANCELLED'}
             
-            # Get properties
-            props = context.scene.mesh_properties
-            print(f"props: {props}")
-            zoom_factor = props.icon_zoom
-            resolution = int(props.icon_size)
-            
-            # Setup camera with custom zoom
+            # Setup camera
             cam_obj = bpy.data.objects.new('Top_Down_Camera', cam_data)
             context.scene.collection.objects.link(cam_obj)
             cam_obj.location = (
                 mesh.location.x,
                 mesh.location.y,
-                mesh.location.z + bounding_sphere_radius * zoom_factor
+                mesh.location.z + bounding_sphere_radius * 2
             )
             cam_obj.rotation_euler = (0, 0, 0)
-            cam_data.ortho_scale = bounding_sphere_radius * zoom_factor
+            cam_data.ortho_scale = bounding_sphere_radius * 2.2
             context.scene.camera = cam_obj
             
             # Setup render settings for icon-style output
             context.scene.render.engine = 'CYCLES'
             context.scene.cycles.samples = 64
-            context.scene.render.resolution_x = resolution
-            context.scene.render.resolution_y = resolution
+            context.scene.render.resolution_x = 1024
+            context.scene.render.resolution_y = 1024
             context.scene.render.film_transparent = True  # Enable transparency
             context.scene.render.image_settings.file_format = 'PNG'
             context.scene.render.image_settings.color_mode = 'RGBA'
@@ -1713,10 +1688,11 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             # Perform render
             bpy.ops.render.render(write_still=True)
             
-            # Post-process with custom threshold
-            if post_process_icon(context.scene.render.filepath, 
-                               context.scene.mesh_properties.icon_height_threshold):
+            # Post-process the render
+            if post_process_icon(context.scene.render.filepath):
                 self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
+            else:
+                self.report({'WARNING'}, f"Render saved but post-processing failed: {context.scene.render.filepath}")
             
         except Exception as e:
             print(f"ERROR during render: {str(e)}")
@@ -1779,48 +1755,8 @@ classes = (
 def register():
     for Class in classes:
         bpy.utils.register_class(Class)
-    
-    # Register icon generation properties
-    bpy.types.Scene.icon_size = bpy.props.EnumProperty(
-        name="Icon Size",
-        description="Size of the generated icon",
-        items=[
-            ('256', '256x256', 'Small icon size'),
-            ('512', '512x512', 'Medium icon size'),
-            ('1024', '1024x1024', 'Large icon size')
-        ],
-        default='512'
-    )
-    bpy.types.Scene.icon_zoom = bpy.props.FloatProperty(
-        name="Camera Zoom",
-        description="Adjusts how much of the model fills the frame",
-        default=3.0,
-        min=1.0,
-        max=5.0,
-        step=0.1
-    )
-    bpy.types.Scene.icon_border_thickness = bpy.props.IntProperty(
-        name="Border Thickness",
-        description="Thickness of the border in pixels",
-        default=2,
-        min=1,
-        max=5
-    )
-    bpy.types.Scene.icon_height_threshold = bpy.props.FloatProperty(
-        name="Detail Threshold",
-        description="Height difference threshold for detail lines",
-        default=0.1,
-        min=0.01,
-        max=1.0,
-        step=0.01
-    )
+
 
 def unregister():
-    # Unregister icon generation properties
-    del bpy.types.Scene.icon_size
-    del bpy.types.Scene.icon_zoom
-    del bpy.types.Scene.icon_border_thickness
-    del bpy.types.Scene.icon_height_threshold
-    
     for Class in classes:
         bpy.utils.unregister_class(Class)
