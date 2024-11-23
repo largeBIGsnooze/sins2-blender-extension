@@ -1402,8 +1402,15 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-    principled_node.inputs["Emission Strength"].default_value = 1.0
+    # Removing this fixed an issue loading the materials from the dds files. Idk why.
+    # Set emissive strength to 100?
+    # principled_node.inputs[27].default_value = 100
+
+    # What could be used instead if needed? Set emissive color to white and strength to 0 (blender default).
+    # I don't think this is needed. Unless there's emissive lighting in the game I'm not accounting for.
+    # That would need a texture file probably.
+    # principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    # principled_node.inputs["Emission Strength"].default_value = 0.0
 
     links = material.node_tree.links
     links.new(_clr.outputs["Color"], mix_node_team_color.inputs["A"])
