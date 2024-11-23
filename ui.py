@@ -121,6 +121,11 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
                     break
 
         box.prop(context.scene.mesh_properties, "toggle_teamcolor")
+        
+        # Render button
+        layout = self.layout
+        layout.separator()
+        layout.operator("sinsii.render_top_down", icon='RENDER_STILL')
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -1461,6 +1466,116 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     return material
 
 
+class SINSII_OT_Render_Top_Down(bpy.types.Operator):
+    bl_label = "Render Top Down View"
+    bl_description = "Creates a top-down orthographic render of the selected object"
+    bl_idname = "sinsii.render_top_down"
+    
+    @classmethod
+    def poll(cls, context):
+        try:
+            is_valid = context.mode == "OBJECT" and get_selected_mesh() is not None
+            print(f"Render button poll result: {is_valid}")
+            return is_valid
+        except Exception as e:
+            print(f"Error in poll: {str(e)}")
+            return False
+    
+    def execute(self, context):
+        print("\nStarting top-down render...")
+        
+        # Store original settings
+        original_camera = context.scene.camera
+        original_engine = context.scene.render.engine
+        original_samples = context.scene.cycles.samples
+        
+        try:
+            mesh = get_selected_mesh()
+            if not mesh:
+                self.report({'ERROR'}, "No mesh selected!")
+                return {'CANCELLED'}
+                
+            print(f"Selected mesh: {mesh.name}")
+            
+            # Create camera
+            print("Creating camera...")
+            cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
+            cam_data.type = 'ORTHO'
+            
+            # Calculate bounding box
+            print("Calculating bounding box...")
+            try:
+                bounding_sphere_radius, center_x, center_y = get_bounding_box(mesh)
+                if not bounding_sphere_radius or bounding_sphere_radius <= 0:
+                    raise ValueError("Invalid bounding sphere radius")
+            except Exception as e:
+                self.report({'ERROR'}, f"Failed to calculate mesh bounds: {str(e)}")
+                return {'CANCELLED'}
+            
+            # Setup camera
+            cam_obj = bpy.data.objects.new('Top_Down_Camera', cam_data)
+            context.scene.collection.objects.link(cam_obj)
+            
+            # Position camera directly above mesh
+            cam_obj.location = (
+                mesh.location.x,
+                mesh.location.y,
+                mesh.location.z + bounding_sphere_radius * 2
+            )
+            cam_obj.rotation_euler = (0, 0, 0)
+            cam_data.ortho_scale = bounding_sphere_radius * 2.2
+            
+            # Set as active camera
+            context.scene.camera = cam_obj
+            
+            # Setup render settings
+            context.scene.render.engine = 'CYCLES'
+            context.scene.cycles.samples = 32  # Lower sample count for faster render
+            context.scene.render.resolution_x = 1920
+            context.scene.render.resolution_y = 1920
+            
+            # Setup output path
+            output_path = os.path.join(os.path.expanduser("~"), "Documents", "Sins2_Renders")
+            os.makedirs(output_path, exist_ok=True)
+            
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"{mesh.name}_top_down_{timestamp}.png"
+            context.scene.render.filepath = os.path.join(output_path, filename)
+            
+            # Ensure all objects are visible in render
+            for obj in context.scene.objects:
+                obj.hide_render = False
+            
+            # Perform render
+            print("Starting render...")
+            bpy.ops.render.render(write_still=True)
+            print("Render completed!")
+            
+            self.report({'INFO'}, f"Render saved to: {context.scene.render.filepath}")
+            
+        except Exception as e:
+            print(f"ERROR during render: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}")
+            self.report({'ERROR'}, f"Render failed: {str(e)}")
+            return {'CANCELLED'}
+            
+        finally:
+            # Restore original settings
+            context.scene.camera = original_camera
+            context.scene.render.engine = original_engine
+            context.scene.cycles.samples = original_samples
+            
+            # Clean up temporary camera
+            if 'cam_obj' in locals():
+                bpy.data.objects.remove(cam_obj, do_unlink=True)
+            if 'cam_data' in locals():
+                bpy.data.cameras.remove(cam_data, do_unlink=True)
+        
+        return {'FINISHED'}
+
+
 classes = (
     SINSII_OT_Import_Mesh,
     SINSII_OT_Export_Mesh,
@@ -1480,6 +1595,7 @@ classes = (
     SINSII_PT_Meshpoint_Miscellaneous,
     SINSII_PT_Meshpoint_Turret,
     SINSII_PT_Meshpoint,
+    SINSII_OT_Render_Top_Down,
 )
 
 
