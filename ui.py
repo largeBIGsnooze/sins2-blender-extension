@@ -788,6 +788,14 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
 
     obj = bpy.data.objects.new(name=mesh_name, object_data=mesh)
     scene = bpy.context.scene
+    print("\nChecking mesh properties:")
+    if hasattr(scene, 'mesh_properties'):
+        print(f"Team Color 1: {list(scene.mesh_properties.team_color_1)}")
+        print(f"Team Color 2: {list(scene.mesh_properties.team_color_2)}")
+        print(f"Team Color 3: {list(scene.mesh_properties.team_color_3)}")
+        print(f"Toggle Team Color: {scene.mesh_properties.toggle_teamcolor}")
+    else:
+        print("No mesh_properties found on scene!")
     scene.collection.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
@@ -811,6 +819,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
         if not os.path.exists(mesh_materials_path):
             new_mat = bpy.data.materials.new(name=material)
         else:
+            print(f"Creating shader nodes for material: {material} with path: {mesh_materials_path} and textures: {textures_path}")
             new_mat = create_shader_nodes(material, mesh_materials_path, textures_path)
         mesh.materials.append(new_mat)
 
@@ -888,6 +897,7 @@ def import_mesh(self, file_path):
         self.report({"ERROR"}, f"Mesh import failed.: {e}")
         return {"CANCELLED"}
 
+    print(f"Loading mesh data for {mesh_name} with reader: {reader} and mesh: {mesh}")
     return load_mesh_data(self, reader.mesh_data, mesh_name, mesh)
 
 
@@ -911,6 +921,7 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
         radius_arr = []
         offset = 0
         for i, file in enumerate(self.files):
+            print(f"Importing mesh: {file.name} at index: {i} with filepath: {os.path.join(os.path.dirname(self.filepath), file.name)}")
             mesh, radius = import_mesh(
                 self, os.path.join(os.path.dirname(self.filepath), file.name)
             )
@@ -1153,27 +1164,58 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
 
 
 def set_node_position(node, x, y):
-    node.location = (x * 100, y * -100)
+    """Set node position with proper vector type"""
+    try:
+        # Convert to tuple of floats
+        node.location = (float(x * 100), float(y * -100))
+    except Exception as e:
+        print(f"Error in set_node_position: {e}")
+        print(f"Node type: {type(node)}")
+        print(f"Current location: {node.location}")
+        print(f"Attempting to set: ({x * 100}, {y * -100})")
+        raise
 
 
 def add_color_ramp_driver(node_id, node, name, data_path):
+    print(f"\nSetting up color ramp driver for {name}")
+    print(f"Node: {node.name}")
+    print(f"Data path: {data_path}")
+    
     is_emissive = 2 if name == "Emissive" else 1
-    for i, driver in enumerate(
-        node_id.driver_add(
+    print(f"Is emissive: {is_emissive}")
+    
+    try:
+        drivers = node_id.driver_add(
             f'nodes["{node.name}"].color_ramp.elements[{is_emissive}].color'
         )
-    ):
-        add_driver(node_id, node, name, f"{data_path}[{i}]", driver.driver)
-
+        print(f"Successfully added drivers: {len(drivers)} channels")
+        
+        for i, driver in enumerate(drivers):
+            print(f"Setting up driver for channel {i}")
+            try:
+                add_driver(node_id, node, name, f"{data_path}[{i}]", driver.driver)
+                print(f"Successfully set up driver for channel {i}")
+            except Exception as e:
+                print(f"Error setting up driver for channel {i}: {e}")
+                
+    except Exception as e:
+        print(f"Error adding color ramp driver: {e}")
 
 def add_driver(node_id, node, name, data_path, driver):
-    driver = driver
-    driver.type = "SUM"
-    var = driver.variables.new()
-    var.name = name
-    var.targets[0].id_type = "SCENE"
-    var.targets[0].id = bpy.context.scene
-    var.targets[0].data_path = data_path
+    print(f"\nAdding driver:")
+    print(f"Name: {name}")
+    print(f"Data path: {data_path}")
+    
+    try:
+        driver.type = "SUM"
+        var = driver.variables.new()
+        var.name = name
+        var.targets[0].id_type = "SCENE"
+        var.targets[0].id = bpy.context.scene
+        var.targets[0].data_path = data_path
+        print("Driver setup successful")
+    except Exception as e:
+        print(f"Error setting up driver: {e}")
 
 
 def load_texture(node, texture):
@@ -1198,10 +1240,24 @@ def load_texture(node, texture):
 
 def load_mesh_material(name, filepath, textures_path):
     mesh_material = os.path.join(filepath, f"{name}.mesh_material")
-
+    
+    # If no mesh_material file exists, look for textures in game directory
     if not os.path.exists(mesh_material):
+        # Get game directory from mesh path (up 1 level from meshes folder)
+        game_dir = os.path.normpath(os.path.join(filepath, ".."))
+        textures_dir = os.path.join(game_dir, "textures")
+        
+        if os.path.exists(textures_dir):
+            texture_base = os.path.join(textures_dir, name)
+            return [
+                f"{texture_base}_clr.dds" if os.path.exists(f"{texture_base}_clr.dds") else "",
+                f"{texture_base}_orm.dds" if os.path.exists(f"{texture_base}_orm.dds") else "",
+                f"{texture_base}_msk.dds" if os.path.exists(f"{texture_base}_msk.dds") else "",
+                f"{texture_base}_nrm.dds" if os.path.exists(f"{texture_base}_nrm.dds") else ""
+            ]
         return ["", "", "", ""]
 
+    # Otherwise use existing mesh_material file
     contents = json.load(open(mesh_material, "r"))
     return [
         (
@@ -1237,20 +1293,41 @@ def create_composite_nodes():
 
 
 def create_shader_nodes(material_name, mesh_materials_path, textures_path):
+    print("\nStarting shader node creation...")
+    
     textures = load_mesh_material(material_name, mesh_materials_path, textures_path)
+    print("Textures loaded")
 
     material = bpy.data.materials.new(name=material_name)
     material.use_nodes = True
     node_id = material.node_tree
     nodes = material.node_tree.nodes
+    print("Material created")
 
     principled_node = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
-    set_node_position(principled_node, 0, 0)
+    print("Found principled node")
+    
+    # Add debug logging
+    print("\nPrincipled BSDF Node Inputs:")
+    for i, input in enumerate(principled_node.inputs):
+        print(f"Input {i}: {input.name} (Type: {input.type})")
+        
+    print("\nSetting node positions...")
+    try:
+        set_node_position(principled_node, 0, 0)
+        print("Positioned principled node")
+    except Exception as e:
+        print(f"Error positioning principled node: {e}")
 
-    _clr = nodes.new(type="ShaderNodeTexImage")
-    set_node_position(_clr, -16, 0)
-    _clr.label = "_clr"
-    load_texture(_clr, textures[0])
+    print("\nCreating texture nodes...")
+    try:
+        _clr = nodes.new(type="ShaderNodeTexImage")
+        set_node_position(_clr, -16, 0)
+        _clr.label = "_clr"
+        load_texture(_clr, textures[0])
+        print("Created _clr node")
+    except Exception as e:
+        print(f"Error creating _clr node: {e}")
 
     _orm = nodes.new(type="ShaderNodeTexImage")
     set_node_position(_orm, -16, 2)
@@ -1378,9 +1455,25 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     clamp_node_2.inputs[2].default_value = 1
     set_node_position(clamp_node_2, 6, 12)
 
-    square_root_node = nodes.new(type="ShaderNodeMath")
-    square_root_node.operation = "SQRT"
-    set_node_position(square_root_node, 8, 12)
+    print("\nCreating square root node...")
+    try:
+        square_root_node = nodes.new(type="ShaderNodeMath")
+        print("Node created successfully")
+        
+        print("Setting operation type...")
+        square_root_node.operation = "SQRT"
+        print("Operation set successfully")
+        
+        print("Current node location:", square_root_node.location)
+        print("Attempting to set position...")
+        try:
+            set_node_position(square_root_node, 8, 12)
+            print("Position set successfully")
+        except Exception as e:
+            print(f"Error setting position: {e}")
+            
+    except Exception as e:
+        print(f"Error creating square root node: {e}")
 
     combine_xyz_node_2 = nodes.new(type="ShaderNodeCombineXYZ")
     set_node_position(combine_xyz_node_2, 10, 10)
@@ -1388,7 +1481,15 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    principled_node.inputs[27].default_value = 100
+    # Removing this fixed an issue loading the materials from the dds files. Idk why this was here.
+    # Set emissive strength to 100?
+    # principled_node.inputs[27].default_value = 100
+
+    # What could be used instead if needed? Set emissive color to white and strength to 0 (blender default).
+    # I don't think this is needed. Unless there's emissive lighting in the game I'm not accounting for.
+    # That would need a texture file probably.
+    # principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    # principled_node.inputs["Emission Strength"].default_value = 0.0
 
     links = material.node_tree.links
     links.new(_clr.outputs["Color"], mix_node_team_color.inputs["A"])
