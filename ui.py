@@ -1481,8 +1481,8 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)  # White color
-    principled_node.inputs["Emission Strength"].default_value = 0.0  # Strength as a single float
+    principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    principled_node.inputs["Emission Strength"].default_value = 1.0
 
     links = material.node_tree.links
     links.new(_clr.outputs["Color"], mix_node_team_color.inputs["A"])
