@@ -1042,9 +1042,6 @@ def post_process_icon(image_path, context):
         # Convert pixels to 2D array with height information
         pixel_array = []
         non_transparent_count = 0
-        border_count = 0
-        detail_count = 0
-        
         for y in range(height):
             row = []
             for x in range(width):
@@ -1054,6 +1051,7 @@ def post_process_icon(image_path, context):
                 alpha = a > 0
                 if alpha:
                     non_transparent_count += 1
+                # Store height value regardless of transparency
                 row.append((height_value, alpha))
             pixel_array.append(row)
         
@@ -1061,13 +1059,12 @@ def post_process_icon(image_path, context):
         
         # Process pixels
         new_pixels = []
+        border_count = 0
+        detail_count = 0
         scale_x = width / icon_size
         scale_y = height / icon_size
         border_thickness = context.scene.mesh_properties.icon_border_thickness
         height_threshold = context.scene.mesh_properties.icon_height_threshold
-        
-        print(f"Using border thickness: {border_thickness}")
-        print(f"Using height threshold: {height_threshold}")
         
         for y in range(icon_size):
             for x in range(icon_size):
@@ -1079,28 +1076,30 @@ def post_process_icon(image_path, context):
                 is_detail = False
                 
                 if alpha:
-                    # Check for border
+                    # Check for border (only care about transparency for borders)
                     for dy in range(-border_thickness, border_thickness + 1):
                         for dx in range(-border_thickness, border_thickness + 1):
                             ny, nx = orig_y + dy, orig_x + dx
                             if (0 <= ny < height and 0 <= nx < width and 
-                                not pixel_array[ny][nx][1]):
+                                not pixel_array[ny][nx][1]):  # Check alpha
                                 is_border = True
                                 border_count += 1
                                 break
                         if is_border:
                             break
                     
-                    # Check for height-based details
+                    # Check for height-based details (ignore transparency)
                     if not is_border:
                         for dy in [-1, 0, 1]:
                             for dx in [-1, 0, 1]:
                                 ny, nx = orig_y + dy, orig_x + dx
-                                if (0 <= ny < height and 0 <= nx < width and 
-                                    abs(pixel_array[ny][nx][0] - height_val) > height_threshold):
-                                    is_detail = True
-                                    detail_count += 1
-                                    break
+                                if (0 <= ny < height and 0 <= nx < width):
+                                    # Only compare height values, ignore transparency
+                                    neighbor_height = pixel_array[ny][nx][0]
+                                    if abs(neighbor_height - height_val) > height_threshold:
+                                        is_detail = True
+                                        detail_count += 1
+                                        break
                             if is_detail:
                                 break
                 
@@ -1660,7 +1659,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                 mesh.location.y,
                 mesh.location.z + bounding_sphere_radius * icon_zoom
             )
-            cam_obj.rotation_euler = (0, 0, icon_rotation)  # Apply rotation to camera object
+            cam_obj.rotation_euler = (0, 0, -icon_rotation)  # Apply rotation to camera object (negative to match Sins2 default rotation)
             
             cam_data.ortho_scale = bounding_sphere_radius * (icon_zoom + 0.2)
             context.scene.camera = cam_obj
