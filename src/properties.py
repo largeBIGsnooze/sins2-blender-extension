@@ -64,7 +64,7 @@ class Properties(bpy.types.PropertyGroup):
     icon_size: bpy.props.EnumProperty(
         name="Icon Size",
         items=[
-            ('170', '170x170', 'Recommended icon size'),
+            ('180', '180x180', 'Recommended icon size'),
             ('256', '256x256', 'Small icon size'),
             ('512', '512x512', 'Medium icon size'),
             ('1024', '1024x1024', 'Large icon size')
@@ -97,6 +97,12 @@ class Properties(bpy.types.PropertyGroup):
         min=-360.0,
         max=360.0,
         step=1.0
+    )
+    icon_kernel_size: bpy.props.IntProperty(
+        name="Kernel Size",
+        default=5,
+        min=1,
+        max=15
     )
 
 

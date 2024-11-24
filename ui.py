@@ -193,6 +193,7 @@ class SINSII_OT_Render_Top_Down_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.prop(context.scene.mesh_properties, "icon_border_thickness")
             col.prop(context.scene.mesh_properties, "icon_height_threshold")
             col.prop(context.scene.mesh_properties, "icon_rotation")
+            col.prop(context.scene.mesh_properties, "icon_kernel_size")
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -1013,107 +1014,94 @@ def join_meshes(meshes):
 
 
 def post_process_icon(image_path, context):
-    """Convert render to icon using Blender's built-in image processing"""
     try:
         print("\nStarting post-processing...")
         
         # Load the rendered image
         img = bpy.data.images.load(image_path, check_existing=True)
         if img is None:
-            print("Failed to load image")
             return False
             
-        print(f"Loaded image: {img.size[0]}x{img.size[1]}")
-        
-        # Get image pixels
+        # Get image pixels and convert to 2D array
         pixels = list(img.pixels[:])
         width = img.size[0]
         height = img.size[1]
-        
-        # Sample some pixel values to verify data
-        print(f"First pixel RGBA: {pixels[0:4]}")
-        print(f"Middle pixel RGBA: {pixels[len(pixels)//2:len(pixels)//2+4]}")
-        print(f"Last pixel RGBA: {pixels[-4:]}")
-        
-        # Create new image
         icon_size = int(context.scene.mesh_properties.icon_size)
-        print(f"Creating new image of size {icon_size}x{icon_size}")
         
-        # Convert pixels to 2D array with height information
+        # Convert pixels to 2D array with height and normal information
         pixel_array = []
-        non_transparent_count = 0
         for y in range(height):
             row = []
             for x in range(width):
                 idx = (y * width + x) * 4
                 r, g, b, a = pixels[idx:idx+4]
-                height_value = b  # Using blue channel for height
-                alpha = a > 0
-                if alpha:
-                    non_transparent_count += 1
-                # Store height value regardless of transparency
-                row.append((height_value, alpha))
+                height_value = b
+                normal_x = (r - 0.5) * 2
+                normal_y = (g - 0.5) * 2
+                row.append((height_value, normal_x, normal_y, a > 0.5))  # Use threshold for alpha
             pixel_array.append(row)
-        
-        print(f"Non-transparent pixels found: {non_transparent_count}")
         
         # Process pixels
         new_pixels = []
-        border_count = 0
-        detail_count = 0
+        kernel_size = context.scene.mesh_properties.icon_kernel_size
+        height_threshold = context.scene.mesh_properties.icon_height_threshold * 2
+        border_thickness = context.scene.mesh_properties.icon_border_thickness
+        
+        def get_edge_strength(x, y):
+            if not (kernel_size <= x < width - kernel_size and kernel_size <= y < height - kernel_size):
+                return 0
+                
+            gh = gx = gy = 0
+            for dy in range(-kernel_size, kernel_size + 1):
+                for dx in range(-kernel_size, kernel_size + 1):
+                    weight = 1.0 / (abs(dx) + abs(dy) + 1)
+                    ny, nx = y + dy, x + dx
+                    
+                    center = pixel_array[y][x]
+                    neighbor = pixel_array[ny][nx]
+                    
+                    if center[3] and neighbor[3]:  # Only compare if both pixels are visible
+                        gh += abs(center[0] - neighbor[0]) * weight
+                        gx += abs(center[1] - neighbor[1]) * weight
+                        gy += abs(center[2] - neighbor[2]) * weight
+            
+            return (gh * 0.5 + (gx + gy) * 0.25) / kernel_size  # Weighted combination
+        
         scale_x = width / icon_size
         scale_y = height / icon_size
-        border_thickness = context.scene.mesh_properties.icon_border_thickness
-        height_threshold = context.scene.mesh_properties.icon_height_threshold
         
         for y in range(icon_size):
             for x in range(icon_size):
                 orig_x = int(x * scale_x)
                 orig_y = int(y * scale_y)
-                height_val, alpha = pixel_array[orig_y][orig_x]
-                
-                is_border = False
-                is_detail = False
+                _, _, _, alpha = pixel_array[orig_y][orig_x]
                 
                 if alpha:
-                    # Check for border (only care about transparency for borders)
+                    # Check for border (solid black)
+                    is_border = False
                     for dy in range(-border_thickness, border_thickness + 1):
                         for dx in range(-border_thickness, border_thickness + 1):
                             ny, nx = orig_y + dy, orig_x + dx
                             if (0 <= ny < height and 0 <= nx < width and 
-                                not pixel_array[ny][nx][1]):  # Check alpha
+                                not pixel_array[ny][nx][3]):
                                 is_border = True
-                                border_count += 1
                                 break
                         if is_border:
                             break
                     
-                    # Check for height-based details (ignore transparency)
+                    # Check for detail lines
+                    is_detail = False
                     if not is_border:
-                        for dy in [-1, 0, 1]:
-                            for dx in [-1, 0, 1]:
-                                ny, nx = orig_y + dy, orig_x + dx
-                                if (0 <= ny < height and 0 <= nx < width):
-                                    # Only compare height values, ignore transparency
-                                    neighbor_height = pixel_array[ny][nx][0]
-                                    if abs(neighbor_height - height_val) > height_threshold:
-                                        is_detail = True
-                                        detail_count += 1
-                                        break
-                            if is_detail:
-                                break
-                
-                # Set pixel colors
-                if alpha:
+                        edge_strength = get_edge_strength(orig_x, orig_y)
+                        is_detail = edge_strength > height_threshold
+                    
+                    # Set fully opaque pixels
                     if is_border or is_detail:
-                        new_pixels.extend([0, 0, 0, 1])  # Black
+                        new_pixels.extend([0.0, 0.0, 0.0, 1.0])  # Solid black
                     else:
-                        new_pixels.extend([1, 1, 1, 1])  # White
+                        new_pixels.extend([1.0, 1.0, 1.0, 1.0])  # Solid white
                 else:
-                    new_pixels.extend([0, 0, 0, 0])  # Transparent
-        
-        print(f"Border pixels found: {border_count}")
-        print(f"Detail pixels found: {detail_count}")
+                    new_pixels.extend([0.0, 0.0, 0.0, 0.0])  # Fully transparent
         
         # Create and save result
         result = bpy.data.images.new(
@@ -1128,8 +1116,6 @@ def post_process_icon(image_path, context):
         # Clean up
         bpy.data.images.remove(img)
         bpy.data.images.remove(result)
-        
-        print("Post-processing complete!")
         return True
         
     except Exception as e:
@@ -1606,6 +1592,8 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
 
     return material
+
+
 
 
 class SINSII_OT_Render_Top_Down(bpy.types.Operator):
