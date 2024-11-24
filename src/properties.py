@@ -64,12 +64,12 @@ class Properties(bpy.types.PropertyGroup):
     icon_size: bpy.props.EnumProperty(
         name="Icon Size",
         items=[
-            ('180', '180x180', 'Recommended icon size'),
+            ('200', '200x200', 'Recommended icon size'),
             ('256', '256x256', 'Small icon size'),
             ('512', '512x512', 'Medium icon size'),
             ('1024', '1024x1024', 'Large icon size')
         ],
-        default='512'
+        default='200'
     )
     icon_zoom: bpy.props.FloatProperty(
         name="Camera Zoom",
@@ -80,7 +80,7 @@ class Properties(bpy.types.PropertyGroup):
     )
     icon_border_thickness: bpy.props.IntProperty(
         name="Border Thickness",
-        default=1,
+        default=2,
         min=1,
         max=5
     )
@@ -103,6 +103,12 @@ class Properties(bpy.types.PropertyGroup):
         default=5,
         min=1,
         max=15
+    )
+    icon_border_hardness: bpy.props.FloatProperty(
+        name="Border Hardness",
+        default=1.0,
+        min=0.0,
+        max=10.0
     )
 
 

@@ -194,6 +194,7 @@ class SINSII_OT_Render_Top_Down_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.prop(context.scene.mesh_properties, "icon_height_threshold")
             col.prop(context.scene.mesh_properties, "icon_rotation")
             col.prop(context.scene.mesh_properties, "icon_kernel_size")
+            col.prop(context.scene.mesh_properties, "icon_border_hardness")
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -1046,27 +1047,77 @@ def post_process_icon(image_path, context):
         kernel_size = context.scene.mesh_properties.icon_kernel_size
         height_threshold = context.scene.mesh_properties.icon_height_threshold * 2
         border_thickness = context.scene.mesh_properties.icon_border_thickness
+        border_hardness = context.scene.mesh_properties.icon_border_hardness
+        
+        def get_border_strength(x, y):
+            # First check if we're within border_thickness distance of the model
+            min_distance = float('inf')
+            angle = -math.radians(context.scene.mesh_properties.icon_rotation)
+            cos_angle = math.cos(angle)
+            sin_angle = math.sin(angle)
+            
+            # Search in a larger area to find the model's edge
+            search_range = border_thickness + 1
+            
+            for dy in range(-search_range, search_range + 1):
+                for dx in range(-search_range, search_range + 1):
+                    rotated_dx = dx * cos_angle - dy * sin_angle
+                    rotated_dy = dx * sin_angle + dy * cos_angle
+                    
+                    ny = int(y + rotated_dy)
+                    nx = int(x + rotated_dx)
+                    
+                    if (0 <= ny < height and 0 <= nx < width):
+                        if pixel_array[ny][nx][3]:  # Found model pixel
+                            distance = math.sqrt(dx*dx + dy*dy)
+                            if distance <= border_thickness:
+                                min_distance = min(min_distance, distance)
+            
+            # If we're not within range of the model or we're inside the model
+            if min_distance == float('inf') or pixel_array[y][x][3]:
+                return 0.0
+                
+            # Calculate strength - closest to model = highest alpha
+            strength = min_distance / border_thickness
+            # Apply hardness
+            return pow(1.0 - strength, border_hardness)
+
+            # Something to do to the inside of the border?
+            # Calculate strength - starts at edge (distance = 0)
+            # strength = min_distance / border_thickness
+            # Apply hardness
+            # return pow(strength, border_hardness)
         
         def get_edge_strength(x, y):
             if not (kernel_size <= x < width - kernel_size and kernel_size <= y < height - kernel_size):
                 return 0
                 
             gh = gx = gy = 0
+            total_weight = 0
+            
             for dy in range(-kernel_size, kernel_size + 1):
                 for dx in range(-kernel_size, kernel_size + 1):
-                    weight = 1.0 / (abs(dx) + abs(dy) + 1)
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    if distance > kernel_size:
+                        continue
+                        
+                    weight = 1.0 - (distance / kernel_size)  # Linear falloff
                     ny, nx = y + dy, x + dx
                     
                     center = pixel_array[y][x]
                     neighbor = pixel_array[ny][nx]
                     
-                    if center[3] and neighbor[3]:  # Only compare if both pixels are visible
+                    if center[3] and neighbor[3]:
                         gh += abs(center[0] - neighbor[0]) * weight
                         gx += abs(center[1] - neighbor[1]) * weight
                         gy += abs(center[2] - neighbor[2]) * weight
+                        total_weight += weight
             
-            return (gh * 0.5 + (gx + gy) * 0.25) / kernel_size  # Weighted combination
-        
+            if total_weight == 0:
+                return 0
+                
+            return (gh * 0.5 + (gx + gy) * 0.25) / total_weight
+
         scale_x = width / icon_size
         scale_y = height / icon_size
         
@@ -1076,32 +1127,32 @@ def post_process_icon(image_path, context):
                 orig_y = int(y * scale_y)
                 _, _, _, alpha = pixel_array[orig_y][orig_x]
                 
+                border_strength = get_border_strength(orig_x, orig_y)
+                
                 if alpha:
-                    # Check for border (solid black)
-                    is_border = False
-                    for dy in range(-border_thickness, border_thickness + 1):
-                        for dx in range(-border_thickness, border_thickness + 1):
-                            ny, nx = orig_y + dy, orig_x + dx
-                            if (0 <= ny < height and 0 <= nx < width and 
-                                not pixel_array[ny][nx][3]):
-                                is_border = True
-                                break
-                        if is_border:
-                            break
-                    
-                    # Check for detail lines
-                    is_detail = False
-                    if not is_border:
-                        edge_strength = get_edge_strength(orig_x, orig_y)
-                        is_detail = edge_strength > height_threshold
-                    
-                    # Set fully opaque pixels
-                    if is_border or is_detail:
-                        new_pixels.extend([0.0, 0.0, 0.0, 1.0])  # Solid black
+                    # Inside the model
+                    edge_strength = get_edge_strength(orig_x, orig_y)
+                    if edge_strength > height_threshold:
+                        # Detail lines
+                        strength_normalized = min((edge_strength - height_threshold) / height_threshold, 1.0)
+                        color = strength_normalized * 0.7  # Black to grey
+                        alpha = 1.0
                     else:
-                        new_pixels.extend([1.0, 1.0, 1.0, 1.0])  # Solid white
+                        # Interior: Pure white
+                        color = 1.0
+                        alpha = 1.0
                 else:
-                    new_pixels.extend([0.0, 0.0, 0.0, 0.0])  # Fully transparent
+                    # Outside the model
+                    if border_strength > 0:
+                        # Border: Black fading to transparent
+                        color = 0.0
+                        alpha = border_strength
+                    else:
+                        # Fully transparent
+                        color = 0.0
+                        alpha = 0.0
+                
+                new_pixels.extend([color, color, color, alpha])
         
         # Create and save result
         result = bpy.data.images.new(
@@ -1592,8 +1643,6 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
 
     return material
-
-
 
 
 class SINSII_OT_Render_Top_Down(bpy.types.Operator):
