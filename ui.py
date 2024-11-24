@@ -125,7 +125,6 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         # Render button
         layout = self.layout
         layout.separator()
-        layout.operator("sinsii.render_top_down", icon='RENDER_STILL')
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -178,6 +177,22 @@ class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
                 meshpoint.name = re.sub(r"\.\d{3}", "", meshpoint_format(name, i))
         return {"FINISHED"}
 
+class SINSII_OT_Render_Top_Down_Panel(SINSII_Main_Panel, bpy.types.Panel):
+    bl_idname = "sinsii.render_top_down_panel"
+    bl_label = "Render Top Down"
+
+    def draw(self, context):
+        col = self.layout.column(align=True)
+        mesh = get_selected_mesh()
+        if not mesh or mesh.type != "MESH":
+            col.label(text="Select a mesh...")
+        else:
+            col.operator("sinsii.render_top_down", icon='RENDER_STILL')
+            col.prop(context.scene.mesh_properties, "icon_size")
+            col.prop(context.scene.mesh_properties, "icon_zoom")
+            col.prop(context.scene.mesh_properties, "icon_border_thickness")
+            col.prop(context.scene.mesh_properties, "icon_height_threshold")
+            col.prop(context.scene.mesh_properties, "icon_rotation")
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -997,104 +1012,131 @@ def join_meshes(meshes):
     return bpy.context.view_layer.objects.active
 
 
-def post_process_icon(image_path):
+def post_process_icon(image_path, context):
     """Convert render to icon using Blender's built-in image processing"""
     try:
+        print("\nStarting post-processing...")
+        
         # Load the rendered image
         img = bpy.data.images.load(image_path, check_existing=True)
         if img is None:
+            print("Failed to load image")
             return False
             
+        print(f"Loaded image: {img.size[0]}x{img.size[1]}")
+        
         # Get image pixels
         pixels = list(img.pixels[:])
         width = img.size[0]
         height = img.size[1]
         
-        # Create new image with smaller dimensions
-        new_width = 512  # Reduced from 1024
-        new_height = 512
-        result = bpy.data.images.new(
-            name="processed_icon",
-            width=new_width,
-            height=new_height,
-            alpha=True
-        )
+        # Sample some pixel values to verify data
+        print(f"First pixel RGBA: {pixels[0:4]}")
+        print(f"Middle pixel RGBA: {pixels[len(pixels)//2:len(pixels)//2+4]}")
+        print(f"Last pixel RGBA: {pixels[-4:]}")
+        
+        # Create new image
+        icon_size = int(context.scene.mesh_properties.icon_size)
+        print(f"Creating new image of size {icon_size}x{icon_size}")
         
         # Convert pixels to 2D array with height information
         pixel_array = []
+        non_transparent_count = 0
+        border_count = 0
+        detail_count = 0
+        
         for y in range(height):
             row = []
             for x in range(width):
                 idx = (y * width + x) * 4
                 r, g, b, a = pixels[idx:idx+4]
-                # Use blue channel for height information (assuming default Blender orientation)
-                height_value = b
+                height_value = b  # Using blue channel for height
                 alpha = a > 0
+                if alpha:
+                    non_transparent_count += 1
                 row.append((height_value, alpha))
             pixel_array.append(row)
         
-        # Process pixels with thicker border and height-based details
-        new_pixels = []
-        scale_x = width / new_width
-        scale_y = height / new_height
+        print(f"Non-transparent pixels found: {non_transparent_count}")
         
-        for y in range(new_height):
-            for x in range(new_width):
-                # Map to original coordinates
+        # Process pixels
+        new_pixels = []
+        scale_x = width / icon_size
+        scale_y = height / icon_size
+        border_thickness = context.scene.mesh_properties.icon_border_thickness
+        height_threshold = context.scene.mesh_properties.icon_height_threshold
+        
+        print(f"Using border thickness: {border_thickness}")
+        print(f"Using height threshold: {height_threshold}")
+        
+        for y in range(icon_size):
+            for x in range(icon_size):
                 orig_x = int(x * scale_x)
                 orig_y = int(y * scale_y)
                 height_val, alpha = pixel_array[orig_y][orig_x]
                 
-                # Check for border (thicker border check)
                 is_border = False
+                is_detail = False
+                
                 if alpha:
-                    for dy in range(-2, 3):  # Increased range for thicker border
-                        for dx in range(-2, 3):
+                    # Check for border
+                    for dy in range(-border_thickness, border_thickness + 1):
+                        for dx in range(-border_thickness, border_thickness + 1):
                             ny, nx = orig_y + dy, orig_x + dx
                             if (0 <= ny < height and 0 <= nx < width and 
-                                not pixel_array[ny][nx][1]):  # neighbor is transparent
+                                not pixel_array[ny][nx][1]):
                                 is_border = True
+                                border_count += 1
                                 break
                         if is_border:
                             break
-                
-                # Detect height-based detail lines
-                is_detail = False
-                if alpha and not is_border:
-                    for dy in [-1, 0, 1]:
-                        for dx in [-1, 0, 1]:
-                            ny, nx = orig_y + dy, orig_x + dx
-                            if (0 <= ny < height and 0 <= nx < width and 
-                                abs(pixel_array[ny][nx][0] - height_val) > 0.005):  # Height difference threshold
-                                is_detail = True
+                    
+                    # Check for height-based details
+                    if not is_border:
+                        for dy in [-1, 0, 1]:
+                            for dx in [-1, 0, 1]:
+                                ny, nx = orig_y + dy, orig_x + dx
+                                if (0 <= ny < height and 0 <= nx < width and 
+                                    abs(pixel_array[ny][nx][0] - height_val) > height_threshold):
+                                    is_detail = True
+                                    detail_count += 1
+                                    break
+                            if is_detail:
                                 break
-                        if is_detail:
-                            break
                 
-                if alpha:  # Non-transparent pixel
-                    if is_border:  # Border pixels become black
-                        new_pixels.extend([0, 0, 0, 1])
-                    elif is_detail:  # Height-based detail lines become black
-                        new_pixels.extend([0, 0, 0, 1])
-                    else:  # Everything else becomes white
-                        new_pixels.extend([1, 1, 1, 1])
-                else:  # Transparent pixels stay transparent
-                    new_pixels.extend([0, 0, 0, 0])
+                # Set pixel colors
+                if alpha:
+                    if is_border or is_detail:
+                        new_pixels.extend([0, 0, 0, 1])  # Black
+                    else:
+                        new_pixels.extend([1, 1, 1, 1])  # White
+                else:
+                    new_pixels.extend([0, 0, 0, 0])  # Transparent
         
-        # Apply new pixels
+        print(f"Border pixels found: {border_count}")
+        print(f"Detail pixels found: {detail_count}")
+        
+        # Create and save result
+        result = bpy.data.images.new(
+            name="processed_icon",
+            width=icon_size,
+            height=icon_size,
+            alpha=True
+        )
         result.pixels = new_pixels
-        
-        # Save result
         result.save_render(image_path)
         
         # Clean up
         bpy.data.images.remove(img)
         bpy.data.images.remove(result)
         
+        print("Post-processing complete!")
         return True
         
     except Exception as e:
         print(f"Error in post-processing: {str(e)}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -1568,19 +1610,8 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
 
 
 class SINSII_OT_Render_Top_Down(bpy.types.Operator):
-    bl_label = "Render Top Down View"
-    bl_description = "Creates a top-down orthographic render of the selected object"
     bl_idname = "sinsii.render_top_down"
-    
-    @classmethod
-    def poll(cls, context):
-        try:
-            is_valid = context.mode == "OBJECT" and get_selected_mesh() is not None
-            print(f"Render button poll result: {is_valid}")
-            return is_valid
-        except Exception as e:
-            print(f"Error in poll: {str(e)}")
-            return False
+    bl_label = "Render Top Down View"
     
     def execute(self, context):
         print("\nStarting top-down render...")
@@ -1592,13 +1623,14 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
         original_film_exposure = context.scene.view_settings.exposure
         original_background = context.scene.world.node_tree.nodes["Background"].inputs[0].default_value
         original_film_transparent = context.scene.render.film_transparent
+        original_materials = {}  # Initialize here, outside try block
         
         try:
             mesh = get_selected_mesh()
             if not mesh:
                 self.report({'ERROR'}, "No mesh selected!")
                 return {'CANCELLED'}
-                
+            
             # Create camera
             cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
             cam_data.type = 'ORTHO'
@@ -1612,23 +1644,33 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                 self.report({'ERROR'}, f"Failed to calculate mesh bounds: {str(e)}")
                 return {'CANCELLED'}
             
-            # Setup camera
+            # Set clip end based on zoom level and bounding sphere
+            icon_zoom = context.scene.mesh_properties.icon_zoom
+            cam_data.clip_end = bounding_sphere_radius * icon_zoom * 10
+            
             cam_obj = bpy.data.objects.new('Top_Down_Camera', cam_data)
             context.scene.collection.objects.link(cam_obj)
+            
+            # Get rotation in radians
+            icon_rotation = math.radians(context.scene.mesh_properties.icon_rotation)
+            
+            # Set camera position and rotation
             cam_obj.location = (
                 mesh.location.x,
                 mesh.location.y,
-                mesh.location.z + bounding_sphere_radius * 2
+                mesh.location.z + bounding_sphere_radius * icon_zoom
             )
-            cam_obj.rotation_euler = (0, 0, 0)
-            cam_data.ortho_scale = bounding_sphere_radius * 2.2
+            cam_obj.rotation_euler = (0, 0, icon_rotation)  # Apply rotation to camera object
+            
+            cam_data.ortho_scale = bounding_sphere_radius * (icon_zoom + 0.2)
             context.scene.camera = cam_obj
             
             # Setup render settings for icon-style output
             context.scene.render.engine = 'CYCLES'
             context.scene.cycles.samples = 64
-            context.scene.render.resolution_x = 1024
-            context.scene.render.resolution_y = 1024
+            icon_size = int(context.scene.mesh_properties.icon_size)
+            context.scene.render.resolution_x = icon_size
+            context.scene.render.resolution_y = icon_size
             context.scene.render.film_transparent = True  # Enable transparency
             context.scene.render.image_settings.file_format = 'PNG'
             context.scene.render.image_settings.color_mode = 'RGBA'
@@ -1689,7 +1731,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             bpy.ops.render.render(write_still=True)
             
             # Post-process the render
-            if post_process_icon(context.scene.render.filepath):
+            if post_process_icon(context.scene.render.filepath, context):
                 self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
             else:
                 self.report({'WARNING'}, f"Render saved but post-processing failed: {context.scene.render.filepath}")
@@ -1749,6 +1791,7 @@ classes = (
     SINSII_PT_Meshpoint_Turret,
     SINSII_PT_Meshpoint,
     SINSII_OT_Render_Top_Down,
+    SINSII_OT_Render_Top_Down_Panel,
 )
 
 
