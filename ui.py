@@ -194,6 +194,8 @@ class SINSII_OT_Render_Top_Down_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.prop(context.scene.mesh_properties, "icon_border_thickness")
             col.prop(context.scene.mesh_properties, "icon_border_hardness")
             col.prop(context.scene.mesh_properties, "icon_detail_intensity")
+            col.prop(context.scene.mesh_properties, "icon_detail_threshold")
+            col.prop(context.scene.mesh_properties, "icon_detail_contrast")
             col.prop(context.scene.mesh_properties, "icon_height_threshold")
             col.prop(context.scene.mesh_properties, "icon_kernel_size")
 
@@ -1046,18 +1048,21 @@ def post_process_icon(image_path, context):
         # Process pixels
         new_pixels = []
         kernel_size = context.scene.mesh_properties.icon_kernel_size
-        height_threshold = context.scene.mesh_properties.icon_height_threshold * 2
+        height_threshold = context.scene.mesh_properties.icon_height_threshold * context.scene.mesh_properties.icon_detail_threshold
         border_thickness = context.scene.mesh_properties.icon_border_thickness
         border_hardness = context.scene.mesh_properties.icon_border_hardness
         
         def get_border_strength(x, y):
-            # First check if we're within border_thickness distance of the model
             min_distance = float('inf')
             angle = -math.radians(context.scene.mesh_properties.icon_rotation)
             cos_angle = math.cos(angle)
             sin_angle = math.sin(angle)
             
-            # Search in a larger area to find the model's edge
+            # Only process if we're outside the model
+            if pixel_array[y][x][3]:
+                return 0.0
+                
+            # Search for nearest model pixel
             search_range = border_thickness + 1
             
             for dy in range(-search_range, search_range + 1):
@@ -1074,17 +1079,13 @@ def post_process_icon(image_path, context):
                             if distance <= border_thickness:
                                 min_distance = min(min_distance, distance)
             
-            # If we're not within range of the model or we're inside the model
-            if min_distance == float('inf') or pixel_array[y][x][3]:
+            if min_distance == float('inf'):
                 return 0.0
                 
             # Calculate strength - closest to model = highest alpha
             strength = min_distance / border_thickness
-            
-            # Invert and adjust hardness calculation
-            # Now: 0.0 = soft edge, 1.0 = medium edge, 2.0 = hard edge
-            adjusted_hardness = 1.0 / max(border_hardness, 0.1)  # Prevent division by zero
-            return pow(1.0 - strength, adjusted_hardness)
+            # Apply hardness
+            return pow(1.0 - strength, border_hardness)
 
             # Something to do to the inside of the border?
             # Calculate strength - starts at edge (distance = 0)
@@ -1134,21 +1135,23 @@ def post_process_icon(image_path, context):
                 border_strength = get_border_strength(orig_x, orig_y)
                 
                 if alpha:
-                    # Inside the model
+                    # Inside the model - always fully opaque
                     edge_strength = get_edge_strength(orig_x, orig_y)
                     if edge_strength > height_threshold:
                         # Detail lines
-                        strength_normalized = min((edge_strength - height_threshold) / height_threshold, 1.0)
-                        color = strength_normalized * context.scene.mesh_properties.icon_detail_intensity  # Black to grey
-                        alpha = 1.0
+                        strength_normalized = min(
+                            (edge_strength - height_threshold) / (height_threshold * context.scene.mesh_properties.icon_detail_contrast), 
+                            1.0
+                        )
+                        color = 1.0 - (strength_normalized * context.scene.mesh_properties.icon_detail_intensity)
                     else:
                         # Interior: Pure white
                         color = 1.0
-                        alpha = 1.0
+                    alpha = 1.0  # Always fully opaque inside
                 else:
                     # Outside the model
                     if border_strength > 0:
-                        # Border: Black fading to transparent
+                        # Border: Solid black with varying opacity
                         color = 0.0
                         alpha = border_strength
                     else:
@@ -1749,8 +1752,9 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                     transparent.location = (-100, 100)
                     
                     # Setup emission for solid silhouette
-                    emission.inputs[0].default_value = (0.8, 0.8, 0.8, 1)  # Light gray for better post-processing
+                    emission.inputs[0].default_value = (1.0, 1.0, 1.0, 1)  # Pure white for better post-processing
                     emission.inputs[1].default_value = 1.0  # Emission strength
+                    mix_shader.inputs[0].default_value = 1.0  # Make sure the material is fully opaque
                     
                     # Setup connections
                     links.new(transparent.outputs[0], mix_shader.inputs[1])

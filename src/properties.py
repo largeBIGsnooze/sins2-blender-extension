@@ -84,12 +84,31 @@ class Properties(bpy.types.PropertyGroup):
         min=1,
         max=5
     )
-    icon_height_threshold: bpy.props.FloatProperty(
+    icon_detail_intensity: bpy.props.FloatProperty(
+        name="Detail Intensity",
+        default=0.7,
+        min=0.0,
+        max=1.0
+    )
+    icon_detail_threshold: bpy.props.FloatProperty(
         name="Detail Threshold",
+        default=2,
+        min=0.001,
+        max=10.0,
+        step=0.001
+    )
+    icon_height_threshold: bpy.props.FloatProperty(
+        name="Height Threshold",
         default=0.01,
         min=0.001,
         max=1.0,
         step=0.001
+    )
+    icon_detail_contrast: bpy.props.FloatProperty(
+        name="Detail Contrast",
+        default=1.0,
+        min=0.0,
+        max=10.0
     )
     icon_rotation: bpy.props.FloatProperty(
         name="Rotation",
@@ -109,12 +128,6 @@ class Properties(bpy.types.PropertyGroup):
         default=1.0,
         min=0.0,
         max=10.0
-    )
-    icon_detail_intensity: bpy.props.FloatProperty(
-        name="Detail Intensity",
-        default=0.7,
-        min=0.0,
-        max=1.0
     )
 
 
