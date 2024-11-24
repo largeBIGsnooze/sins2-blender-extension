@@ -190,11 +190,12 @@ class SINSII_OT_Render_Top_Down_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.operator("sinsii.render_top_down", icon='RENDER_STILL')
             col.prop(context.scene.mesh_properties, "icon_size")
             col.prop(context.scene.mesh_properties, "icon_zoom")
-            col.prop(context.scene.mesh_properties, "icon_border_thickness")
-            col.prop(context.scene.mesh_properties, "icon_height_threshold")
             col.prop(context.scene.mesh_properties, "icon_rotation")
-            col.prop(context.scene.mesh_properties, "icon_kernel_size")
+            col.prop(context.scene.mesh_properties, "icon_border_thickness")
             col.prop(context.scene.mesh_properties, "icon_border_hardness")
+            col.prop(context.scene.mesh_properties, "icon_detail_intensity")
+            col.prop(context.scene.mesh_properties, "icon_height_threshold")
+            col.prop(context.scene.mesh_properties, "icon_kernel_size")
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -1079,8 +1080,11 @@ def post_process_icon(image_path, context):
                 
             # Calculate strength - closest to model = highest alpha
             strength = min_distance / border_thickness
-            # Apply hardness
-            return pow(1.0 - strength, border_hardness)
+            
+            # Invert and adjust hardness calculation
+            # Now: 0.0 = soft edge, 1.0 = medium edge, 2.0 = hard edge
+            adjusted_hardness = 1.0 / max(border_hardness, 0.1)  # Prevent division by zero
+            return pow(1.0 - strength, adjusted_hardness)
 
             # Something to do to the inside of the border?
             # Calculate strength - starts at edge (distance = 0)
@@ -1135,7 +1139,7 @@ def post_process_icon(image_path, context):
                     if edge_strength > height_threshold:
                         # Detail lines
                         strength_normalized = min((edge_strength - height_threshold) / height_threshold, 1.0)
-                        color = strength_normalized * 0.7  # Black to grey
+                        color = strength_normalized * context.scene.mesh_properties.icon_detail_intensity  # Black to grey
                         alpha = 1.0
                     else:
                         # Interior: Pure white

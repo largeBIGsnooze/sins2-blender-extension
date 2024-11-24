@@ -110,6 +110,12 @@ class Properties(bpy.types.PropertyGroup):
         min=0.0,
         max=10.0
     )
+    icon_detail_intensity: bpy.props.FloatProperty(
+        name="Detail Intensity",
+        default=0.7,
+        min=0.0,
+        max=1.0
+    )
 
 
 def register():
