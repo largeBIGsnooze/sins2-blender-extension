@@ -9,7 +9,6 @@ from .src.lib.github_downloader import Github
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
 from .config import AddonSettings
-from mathutils.bvhtree import BVHTree
 
 TEMP_DIR = tempfile.gettempdir()
 MESHPOINT_COLOR = (0.18039216101169586, 0.7686275243759155, 1.0)
@@ -142,16 +141,10 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.label(text=f"Selected: {mesh.name}")
             col.operator("sinsii.render_top_down", icon='RENDER_STILL')
             hdri_row = col.row()
-            col.prop(context.scene.mesh_properties, "icon_zoom")
-            col.operator("sinsii.render_perspective", icon='RENDER_STILL')
             hdri_row.prop(context.scene.mesh_properties, "hdri_path")
             hdri_row.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
-            col.prop(context.scene.mesh_properties, "starfield_mix")
-            col.prop(context.scene.mesh_properties, "ambient_strength")
-            col.prop(context.scene.mesh_properties, "background_strength")
-            col.prop(context.scene.mesh_properties, "hdri_strength")
-            col.prop(context.scene.mesh_properties, "camera_distance")
-            col.prop(context.scene.mesh_properties, "focal_length")
+            col.operator("sinsii.render_perspective", icon='RENDER_STILL')
+            col.prop(context.scene.mesh_properties, "icon_zoom")
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
@@ -799,6 +792,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
 
     indices = mesh_data["indices"]
     loops = [indices[i : i + 3] for i in range(0, len(indices), 3)]
+
     mesh.from_pydata(vert_arr, [], loops)
     mesh.update()
 
@@ -1546,63 +1540,6 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     return material
 
 
-def setup_three_point_lighting(context, mesh_center, radius):
-    """Creates a 3-point lighting setup around the mesh"""
-    # Create light objects
-    key_data = bpy.data.lights.new(name="Key Light", type='AREA')
-    fill_data = bpy.data.lights.new(name="Fill Light", type='AREA')
-    back_data = bpy.data.lights.new(name="Back Light", type='AREA')
-    
-    # Set light properties
-    key_data.energy = 1000
-    key_data.size = radius
-    fill_data.energy = 400
-    fill_data.size = radius
-    back_data.energy = 600
-    back_data.size = radius
-    
-    # Create light objects
-    key = bpy.data.objects.new(name="Key Light", object_data=key_data)
-    fill = bpy.data.objects.new(name="Fill Light", object_data=fill_data)
-    back = bpy.data.objects.new(name="Back Light", object_data=back_data)
-    
-    # Link lights to scene
-    context.scene.collection.objects.link(key)
-    context.scene.collection.objects.link(fill)
-    context.scene.collection.objects.link(back)
-    
-    # Position lights relative to mesh center
-    distance = radius * 4
-    key.location = (
-        mesh_center[0] + distance,
-        mesh_center[1] - distance,
-        mesh_center[2] + distance * 1.5
-    )
-    fill.location = (
-        mesh_center[0] - distance,
-        mesh_center[1] + distance,
-        mesh_center[2] + distance
-    )
-    back.location = (
-        mesh_center[0],
-        mesh_center[1] + distance * 1.5,
-        mesh_center[2] - distance
-    )
-    
-    # Point lights at mesh center
-    for light in [key, fill, back]:
-        direction = Vector(mesh_center) - light.location
-        rot_quat = direction.to_track_quat('-Z', 'Y')
-        light.rotation_euler = rot_quat.to_euler()
-    
-    return [key, fill, back]
-
-def cleanup_lights(lights):
-    """Removes temporary lights and their data"""
-    for light in lights:
-        light_data = light.data
-        bpy.data.objects.remove(light, do_unlink=True)
-        bpy.data.lights.remove(light_data)
 
 class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
     bl_label = "Render Top Down Icon"
@@ -1784,8 +1721,8 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
 
 
 class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
-    bl_label = "Render Perspective Views"
-    bl_description = "Creates two perspective renders of the model"
+    bl_label = "Render Perspective View"
+    bl_description = "Creates a perspective render of the model with original materials"
     bl_idname = "sinsii.render_perspective"
     
     filename_ext = ".png"
@@ -1806,7 +1743,7 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
         return super().invoke(context, event)
     
     def execute(self, context):
-        print("\nStarting perspective renders...")
+        print("\nStarting perspective render...")
         
         # Store original settings
         original_camera = context.scene.camera
@@ -1814,129 +1751,83 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
         original_samples = context.scene.cycles.samples
         original_film_exposure = context.scene.view_settings.exposure
         original_world = context.scene.world.copy()
-        lights = []
         
         try:
             mesh = get_selected_mesh()
             if not mesh:
-                print("No mesh selected")
                 self.report({'ERROR'}, "No mesh selected!")
                 return {'CANCELLED'}
-            
-            print(f"\nSelected mesh: {mesh.name}")
             
             # Calculate camera position based on bounding box
             bounding_sphere_radius, _, center = get_bounding_box(mesh)
             if not bounding_sphere_radius or bounding_sphere_radius <= 0:
-                print(f"Invalid bounding sphere radius: {bounding_sphere_radius}")
                 raise ValueError("Invalid bounding sphere radius")
-                
-            print(f"Bounding sphere radius: {bounding_sphere_radius}")
-            print(f"Mesh center: {center}")
             
             # Create camera
             cam_data = bpy.data.cameras.new(name='Perspective_Camera')
             cam_data.type = 'PERSP'
-            cam_data.lens = context.scene.mesh_properties.focal_length
-            cam_data.clip_end = 100000
+            cam_data.lens = 50  # 50mm focal length
+            cam_data.clip_end = 1000000
+            
+            # Position camera diagonally from the model
+            distance = bounding_sphere_radius * context.scene.mesh_properties.icon_zoom
             cam_obj = bpy.data.objects.new('Perspective_Camera', cam_data)
             context.scene.collection.objects.link(cam_obj)
             
-            print(f"\nCamera created:")
-            print(f"Focal length: {cam_data.lens}")
-            print(f"Clip end: {cam_data.clip_end}")
-
-            # Setup HDRI world nodes with transparency
-            print("\nSetting up HDRI world nodes...")
-            context.scene.world.use_nodes = True
-            nodes = context.scene.world.node_tree.nodes
-            links = context.scene.world.node_tree.links
-            nodes.clear()
+            # Position camera at 45 degree angles
+            cam_obj.location = (
+                center[0] + distance * math.cos(math.radians(45)),
+                center[1] - distance * math.cos(math.radians(45)),
+                center[2] + distance * math.sin(math.radians(45))
+            )
             
-            background = nodes.new('ShaderNodeBackground')
-            output = nodes.new('ShaderNodeOutputWorld')
-            
-            if context.scene.mesh_properties.hdri_path:
-                print(f"Using HDRI: {context.scene.mesh_properties.hdri_path}")
-                env_tex = nodes.new('ShaderNodeTexEnvironment')
-                env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
-                links.new(env_tex.outputs['Color'], background.inputs['Color'])
-                background.inputs['Strength'].default_value = context.scene.mesh_properties.hdri_strength
-                print(f"HDRI strength: {context.scene.mesh_properties.hdri_strength}")
-            else:
-                print("No HDRI path set!")
-                return {'CANCELLED'}
-            
-            links.new(background.outputs['Background'], output.inputs['Surface'])
-            
-            # Basic render settings
-            print("\nConfiguring render settings...")
-            context.scene.render.engine = 'CYCLES'
-            context.scene.cycles.samples = 32
-            context.scene.render.film_transparent = False
-            print(f"Render engine: {context.scene.render.engine}")
-            print(f"Samples: {context.scene.cycles.samples}")
-            
-            # Setup lights
-            print("\nSetting up three-point lighting...")
-            lights = setup_three_point_lighting(context, center, bounding_sphere_radius)
-            print(f"Created {len(lights)} lights")
-            for light in lights:
-                print(f"Light: {light.name} at position {light.location}")
-            
-            # First render - with HDRI but transparent background
-            distance = bounding_sphere_radius * context.scene.mesh_properties.camera_distance
-            print(f"\nCamera distance multiplier: {context.scene.mesh_properties.camera_distance}")
-            print(f"Calculated distance: {distance}")
-            
-            # First render camera setup
-            def get_camera_position(center, distance, angle_h, angle_v):
-                """Calculate camera position based on angles and distance"""
-                # Convert angles to radians
-                angle_h_rad = math.radians(angle_h)
-                angle_v_rad = math.radians(angle_v)
-                
-                # Calculate position using spherical coordinates
-                x = center[0] + distance * math.cos(angle_v_rad) * math.cos(angle_h_rad)
-                y = center[1] + distance * math.cos(angle_v_rad) * math.sin(angle_h_rad)
-                z = center[2] + distance * math.sin(angle_v_rad)
-                
-                return Vector((x, y, z))
-
-            # In execute():
-            # First render position (45° horizontal, 35° vertical)
-            cam_obj.location = get_camera_position(center, distance, 45, 35)
-            print(f"Initial camera position: {cam_obj.location}")
-
-            # Point camera at center
-            direction = Vector(center) - cam_obj.location
-            rot_quat = direction.to_track_quat('-Z', 'Y')  # Back to '-Z' because we're using proper positioning
-            cam_obj.rotation_euler = rot_quat.to_euler()
-            print(f"Camera rotation: {cam_obj.rotation_euler}")
-            
-            # Second render position (30° horizontal, 25° vertical)
-            cam_obj.location = get_camera_position(center, distance, 30, 25)
-            print(f"Second camera position: {cam_obj.location}")
-
+            # Point camera at model center
             direction = Vector(center) - cam_obj.location
             rot_quat = direction.to_track_quat('-Z', 'Y')
             cam_obj.rotation_euler = rot_quat.to_euler()
-            print(f"Second camera rotation: {cam_obj.rotation_euler}")
             
-            # Keep HDRI but disable transparency
+            context.scene.camera = cam_obj
+            
+            # Setup render settings
+            context.scene.render.engine = 'CYCLES'
+            context.scene.cycles.samples = 128
+            context.scene.render.resolution_x = 1920
+            context.scene.render.resolution_y = 1080
             context.scene.render.film_transparent = False
-            print("Disabled transparency for second render")
             
-            # Second render - 530x170
-            print("\nStarting second render (530x170)...")
-            context.scene.render.resolution_x = 530
-            context.scene.render.resolution_y = 170
-            context.scene.render.filepath = f"{self.filepath}_view2.png"
-            print(f"Rendering to: {context.scene.render.filepath}")
+            # Setup world HDRI
+            if context.scene.mesh_properties.hdri_path:
+                context.scene.world.use_nodes = True
+                nodes = context.scene.world.node_tree.nodes
+                links = context.scene.world.node_tree.links
+                
+                # Clear existing nodes
+                nodes.clear()
+                
+                # Create nodes
+                background = nodes.new('ShaderNodeBackground')
+                env_tex = nodes.new('ShaderNodeTexEnvironment')
+                output = nodes.new('ShaderNodeOutputWorld')
+                
+                # Load HDRI
+                env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
+                
+                # Connect nodes
+                links.new(env_tex.outputs['Color'], background.inputs['Color'])
+                links.new(background.outputs['Background'], output.inputs['Surface'])
+                
+                # Position nodes
+                output.location = (300, 0)
+                background.location = (0, 0)
+                env_tex.location = (-300, 0)
+            
+            # Setup output path
+            context.scene.render.filepath = self.filepath
+            
+            # Perform render
             bpy.ops.render.render(write_still=True)
-            print("Second render complete")
             
-            self.report({'INFO'}, f"Perspective renders saved to: {self.filepath}_view1/2.png")
+            self.report({'INFO'}, f"Perspective render saved to: {self.filepath}")
             
         except Exception as e:
             print(f"ERROR during render: {str(e)}")
@@ -1946,27 +1837,19 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             return {'CANCELLED'}
             
         finally:
-            print("\nCleaning up...")
             # Restore original settings
             context.scene.camera = original_camera
             context.scene.render.engine = original_engine
             context.scene.cycles.samples = original_samples
             context.scene.view_settings.exposure = original_film_exposure
             context.scene.world = original_world
-            print("Original settings restored")
             
             # Clean up temporary camera
             if 'cam_obj' in locals():
                 bpy.data.objects.remove(cam_obj, do_unlink=True)
             if 'cam_data' in locals():
                 bpy.data.cameras.remove(cam_data, do_unlink=True)
-            print("Temporary camera removed")
-            
-            # Clean up lights
-            cleanup_lights(lights)
-            print("Temporary lights removed")
         
-        print("Render operation complete")
         return {'FINISHED'}
 
 
@@ -1983,69 +1866,6 @@ class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         context.scene.mesh_properties.hdri_path = self.filepath
         return {'FINISHED'}
-
-def is_point_inside_mesh(point, mesh):
-    """Check if a point is inside a mesh using raycasting"""
-    # Get the world matrix
-    matrix = mesh.matrix_world
-    # Create a BVHTree for the mesh
-    bm = bmesh.new()
-    bm.from_mesh(mesh.data)
-    bm.transform(matrix)
-    bvh = BVHTree.FromBMesh(bm)
-    
-    # Cast rays in 6 directions (+/- x,y,z)
-    directions = [(1,0,0), (-1,0,0), (0,1,0), (0,-1,0), (0,0,1), (0,0,-1)]
-    inside_count = 0
-    
-    for direction in directions:
-        location, normal, _, _ = bvh.ray_cast(point, Vector(direction))
-        if location is not None:
-            inside_count += 1
-    
-    bm.free()
-    # If we hit the mesh in all 6 directions, we're inside
-    return inside_count == 6
-
-def is_mesh_in_camera_view(context, mesh, camera):
-    """Check if any part of the mesh is visible to the camera"""
-    print(f"\nChecking mesh visibility:")
-    
-    # Get mesh bounds in world space
-    bounds = [mesh.matrix_world @ Vector(corner) for corner in mesh.bound_box]
-    
-    # Convert bounds to camera space
-    cam_matrix = camera.matrix_world.inverted()
-    bounds_cam = [cam_matrix @ point for point in bounds]
-    
-    # Get camera parameters
-    cam_data = camera.data
-    aspect = context.scene.render.resolution_x / context.scene.render.resolution_y
-    fov = 2 * math.atan(36.0 / (2 * cam_data.lens))  # 36mm sensor width
-    
-    print(f"Camera FOV: {math.degrees(fov)} degrees")
-    print(f"Aspect ratio: {aspect}")
-    
-    visible_points = 0
-    for i, point in enumerate(bounds_cam):
-        # Check if point is in front of camera
-        if point.z < 0:
-            # Calculate normalized device coordinates
-            ndc_x = point.x / (-point.z * aspect)
-            ndc_y = point.y / -point.z
-            
-            # Check if within frustum
-            if abs(ndc_x) < 1.0 and abs(ndc_y) < 1.0:
-                visible_points += 1
-                print(f"Point {i} is visible at NDC coords: ({ndc_x:.2f}, {ndc_y:.2f})")
-    
-    is_visible = visible_points > 0
-    print(f"Visible points: {visible_points}/8")
-    print(f"Mesh is {'visible' if is_visible else 'not visible'}")
-    return is_visible
-
-# In SINSII_OT_Render_Perspective.execute():
-# After setting camera position but before rendering:
 
 classes = (
     SINSII_OT_Import_Mesh,

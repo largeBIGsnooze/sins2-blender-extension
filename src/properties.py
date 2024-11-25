@@ -76,56 +76,6 @@ class Properties(bpy.types.PropertyGroup):
         default="",
     )
 
-    starfield_mix: bpy.props.FloatProperty(
-        name="Starfield Mix",
-        description="Controls the mix of starfield and environment",
-        default=0.5,
-    )
-
-    ambient_strength: bpy.props.FloatProperty(
-        name="Ambient Strength",
-        description="Controls the strength of the ambient light",
-        default=0.7,
-    )
-
-    background_strength: bpy.props.FloatProperty(
-        name="Background Strength",
-        description="Controls the strength of the background light",
-        default=1.0,
-    )
-
-    hdri_strength: bpy.props.FloatProperty(
-        name="HDRi Strength",
-        description="Controls the strength of the HDRi background",
-        default=15.0,
-        min=0.0,
-        soft_max=20.0,
-    )
-
-    camera_distance: bpy.props.FloatProperty(
-        name="Camera Distance",
-        description="Controls how far the camera is from the subject",
-        default=100.0,
-        min=0.1,
-        soft_max=1000.0,
-    )
-
-    focal_length: bpy.props.FloatProperty(
-        name="Focal Length",
-        description="Camera focal length in millimeters",
-        default=24.0,
-        min=1.0,
-        soft_max=200.0,
-    )
-
-    light_distance: bpy.props.FloatProperty(
-        name="Light Distance",
-        description="Controls the distance of the lights from the subject",
-        default=100.0,
-        min=0.1,
-        soft_max=1000.0,
-    )
-
 
 def register():
     bpy.utils.register_class(Properties)
