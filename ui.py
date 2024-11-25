@@ -141,12 +141,18 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.label(text=f"Selected: {mesh.name}")
             col.operator("sinsii.render_top_down", icon='RENDER_STILL')
             col.prop(context.scene.mesh_properties, "icon_zoom")
-            col.operator("sinsii.render_perspective", icon='RENDER_STILL')
-            hdri_row = col.row()
-            hdri_row.prop(context.scene.mesh_properties, "hdri_path")
             col.separator(factor=0.5)
-            hdri_row.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
-            col.prop(context.scene.mesh_properties, "hdri_strength")
+            col.operator("sinsii.render_perspective", icon='RENDER_STILL')
+            box = col.box()
+            box.prop(context.scene.mesh_properties, "use_skybox")
+            if context.scene.mesh_properties.use_skybox:
+                box.operator("sinsii.pick_skybox", icon='FILE_FOLDER')
+                box.label(text=os.path.basename(context.scene.mesh_properties.skybox_path))
+            else:
+                box.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
+                box.label(text=os.path.basename(context.scene.mesh_properties.hdri_path))
+            box.prop(context.scene.mesh_properties, "hdri_strength")
+            
             col.separator(factor=0.5)
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
@@ -1733,6 +1739,78 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
         default="*.png",
         options={'HIDDEN'},
     )
+
+    
+    def setup_world_lighting(self, context, nodes, links):
+        """Setup world lighting using either HDRI or skybox"""
+        nodes.clear()
+        background = nodes.new('ShaderNodeBackground')
+        output = nodes.new('ShaderNodeOutputWorld')
+        
+        if context.scene.mesh_properties.use_skybox and context.scene.mesh_properties.skybox_path:
+            print("\nAttempting to load skybox...")
+            print(f"Skybox path: {context.scene.mesh_properties.skybox_path}")
+            try:
+                # Load and parse skybox file
+                with open(context.scene.mesh_properties.skybox_path, 'r') as f:
+                    skybox_data = json.load(f)
+                    print(f"Loaded skybox data: {skybox_data}")
+                
+                # Get skybox directory
+                skybox_dir = os.path.dirname(context.scene.mesh_properties.skybox_path)
+                game_dir = os.path.dirname(skybox_dir)  # Up one level from skyboxes folder
+                textures_dir = os.path.join(game_dir, "textures")
+                
+                # Get main skybox texture from first layer
+                if 'skybox_layers' in skybox_data and len(skybox_data['skybox_layers']) > 0:
+                    main_texture = skybox_data['skybox_layers'][0]['base_color_texture']
+                    texture_path = os.path.join(textures_dir, f"{main_texture}.dds")
+                    print(f"Loading main skybox texture: {texture_path}")
+                    
+                    if os.path.exists(texture_path):
+                        # Create temporary directory for converted texture
+                        temp_dir = os.path.join(TEMP_DIR, "skybox_temp")
+                        os.makedirs(temp_dir, exist_ok=True)
+                        
+                        # Convert DDS to a format Blender can read
+                        print("Converting DDS texture...")
+                        run_texconv(texture_path, temp_dir)
+                        converted_path = os.path.join(temp_dir, f"{main_texture}.DDS")
+                        
+                        # Create environment texture node
+                        env_tex = nodes.new('ShaderNodeTexEnvironment')
+                        try:
+                            img = bpy.data.images.load(converted_path)
+                            print(f"Loaded image: {img.name} ({img.size[0]}x{img.size[1]})")
+                            env_tex.image = img
+                            links.new(env_tex.outputs['Color'], background.inputs['Color'])
+                        except Exception as img_error:
+                            print(f"Error loading texture: {str(img_error)}")
+                            raise
+                        
+                        # Clean up temp files
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                    else:
+                        raise FileNotFoundError(f"Texture file not found: {texture_path}")
+                else:
+                    raise KeyError("No skybox layers found in skybox data")
+                
+            except Exception as e:
+                print(f"\nSkybox loading failed: {str(e)}")
+                self.report({'WARNING'}, f"Failed to load skybox: {str(e)}. Falling back to HDRI.")
+                context.scene.mesh_properties.use_skybox = False
+        
+        if not context.scene.mesh_properties.use_skybox and context.scene.mesh_properties.hdri_path:
+            print("\nFalling back to HDRI setup...")
+            # Setup HDRI
+            env_tex = nodes.new('ShaderNodeTexEnvironment')
+            env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
+            links.new(env_tex.outputs['Color'], background.inputs['Color'])
+        
+        # Set strength and connect to output
+        background.inputs['Strength'].default_value = context.scene.mesh_properties.hdri_strength
+        links.new(background.outputs['Background'], output.inputs['Surface'])
+
     
     @classmethod
     def poll(cls, context):
@@ -1768,7 +1846,7 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             
             # Create camera
             cam_data = bpy.data.cameras.new(name='Perspective_Camera')
-            cam_data.type = 'PERSP'
+            cam_data.type = 'ORTHO'
             cam_data.lens = 50  # 50mm focal length
             cam_data.clip_end = 1000000
             
@@ -1788,6 +1866,7 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             direction = Vector(center) - cam_obj.location
             rot_quat = direction.to_track_quat('-Z', 'Y')
             cam_obj.rotation_euler = rot_quat.to_euler()
+            print(f"Camera rotation: {cam_obj.rotation_euler}")
             
             context.scene.camera = cam_obj
             
@@ -1798,8 +1877,18 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             context.scene.render.resolution_y = 1080
             context.scene.render.film_transparent = False
             
-            # Setup world HDRI
-            if context.scene.mesh_properties.hdri_path:
+            # Use skybox else HDRI
+            if context.scene.mesh_properties.use_skybox:
+                print("\nUsing skybox...")
+
+                # Setup world lighting
+                context.scene.world.use_nodes = True
+                nodes = context.scene.world.node_tree.nodes
+                links = context.scene.world.node_tree.links
+                self.setup_world_lighting(context, nodes, links)
+            elif context.scene.mesh_properties.hdri_path:
+                print("\nUsing HDRI...")
+                # Setup world HDRI
                 context.scene.world.use_nodes = True
                 nodes = context.scene.world.node_tree.nodes
                 links = context.scene.world.node_tree.links
@@ -1844,6 +1933,9 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             direction = Vector(center) - cam_obj.location
             rot_quat = direction.to_track_quat('-Z', 'Y')
             cam_obj.rotation_euler = rot_quat.to_euler()
+
+            # Set camera to perspective
+            cam_data.type = 'PERSP'
             
             # Setup output path for second render
             second_render_path = os.path.join(os.path.dirname(first_render_path), f"{mesh.name}_hud_picture200.png")
@@ -1891,6 +1983,21 @@ class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
         context.scene.mesh_properties.hdri_path = self.filepath
         return {'FINISHED'}
 
+class SINSII_OT_Pick_Skybox(bpy.types.Operator, ImportHelper):
+    bl_idname = "sinsii.pick_skybox"
+    bl_label = "Select Skybox"
+    
+    filename_ext = ".skybox"
+    filter_glob: bpy.props.StringProperty(
+        default="*.skybox",
+        options={'HIDDEN'},
+    )
+    
+    def execute(self, context):
+        context.scene.mesh_properties.skybox_path = self.filepath
+        return {'FINISHED'}
+
+
 classes = (
     SINSII_OT_Import_Mesh,
     SINSII_OT_Export_Mesh,
@@ -1913,6 +2020,7 @@ classes = (
     SINSII_OT_Render_Top_Down,
     SINSII_OT_Render_Perspective,
     SINSII_OT_Pick_HDRI,
+    SINSII_OT_Pick_Skybox,
 )
 
 

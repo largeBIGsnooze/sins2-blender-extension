@@ -83,6 +83,18 @@ class Properties(bpy.types.PropertyGroup):
         min=0.0,
     )
 
+    use_skybox: bpy.props.BoolProperty(
+        name="Use Skybox",
+        description="Use game skybox instead of HDRI",
+        default=True,
+    )
+
+    skybox_path: bpy.props.StringProperty(
+        name="Skybox Path",
+        description="Path to the .skybox file",
+        default="",
+    )
+
 
 def register():
     bpy.utils.register_class(Properties)
