@@ -140,26 +140,11 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
         else:
             col.label(text=f"Selected: {mesh.name}")
             col.operator("sinsii.render_top_down", icon='RENDER_STILL')
-            col.prop(context.scene.mesh_properties, "icon_zoom")
-            col.separator(factor=0.5)
+            hdri_row = col.row()
+            hdri_row.prop(context.scene.mesh_properties, "hdri_path")
+            hdri_row.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
             col.operator("sinsii.render_perspective", icon='RENDER_STILL')
-            box = col.box()
-            box.prop(context.scene.mesh_properties, "use_skybox")
-            if context.scene.mesh_properties.use_skybox:
-                box.operator("sinsii.pick_skybox", icon='FILE_FOLDER')
-                box.label(text=os.path.basename(context.scene.mesh_properties.skybox_path))
-                col = box.column(align=True)
-                col.prop(context.scene.mesh_properties, "radiance_blend")
-                col.prop(context.scene.mesh_properties, "starfield_blend")
-                col.prop(context.scene.mesh_properties, "starfield_brightness")
-                col.prop(context.scene.mesh_properties, "cloud_blend")
-                col.prop(context.scene.mesh_properties, "cloud_fresnel_ior")
-            else:
-                box.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
-                box.label(text=os.path.basename(context.scene.mesh_properties.hdri_path))
-            box.prop(context.scene.mesh_properties, "hdri_strength")
-            
-            col.separator(factor=0.5)
+            col.prop(context.scene.mesh_properties, "icon_zoom")
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
@@ -2138,9 +2123,6 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
                 
                 # Load HDRI
                 env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
-
-                # Set HDRI strength on the background node
-                background.inputs['Strength'].default_value = context.scene.mesh_properties.hdri_strength
                 
                 # Connect nodes
                 links.new(env_tex.outputs['Color'], background.inputs['Color'])
