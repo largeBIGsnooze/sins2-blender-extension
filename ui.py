@@ -1722,7 +1722,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
 
 class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
     bl_label = "Render Perspective View"
-    bl_description = "Creates a perspective render of the model with original materials"
+    bl_description = "Creates two perspective renders of the model with original materials"
     bl_idname = "sinsii.render_perspective"
     
     filename_ext = ".png"
@@ -1739,7 +1739,7 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
         mesh = get_selected_mesh()
         if mesh:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            self.filepath = f"{mesh.name}_perspective_{timestamp}.png"
+            self.filepath = f"{mesh.name}_perspective_view1_{timestamp}.png"
         return super().invoke(context, event)
     
     def execute(self, context):
@@ -1824,7 +1824,23 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             # Setup output path
             context.scene.render.filepath = self.filepath
             
-            # Perform render
+            # Perform 1st render with transparency
+            context.scene.render.film_transparent = True
+            bpy.ops.render.render(write_still=True)
+
+            # Move and rotate the camera and perform 2nd render without transparency
+            cam_obj.location = (
+                center[0] - distance * math.cos(math.radians(30)),
+                center[1] - distance * math.cos(math.radians(30)),
+                center[2] - distance * math.sin(math.radians(30))
+            )
+            direction = Vector(center) - cam_obj.location
+            rot_quat = direction.to_track_quat('-Z', 'Y')
+            cam_obj.rotation_euler = rot_quat.to_euler()
+            
+            context.scene.render.film_transparent = False
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            self.filepath = f"{self.filepath}_perspective_view2_{timestamp}.png"
             bpy.ops.render.render(write_still=True)
             
             self.report({'INFO'}, f"Perspective render saved to: {self.filepath}")
