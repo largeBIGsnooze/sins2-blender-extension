@@ -144,8 +144,10 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.operator("sinsii.render_perspective", icon='RENDER_STILL')
             hdri_row = col.row()
             hdri_row.prop(context.scene.mesh_properties, "hdri_path")
+            col.separator(factor=0.5)
             hdri_row.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
             col.prop(context.scene.mesh_properties, "hdri_strength")
+            col.separator(factor=0.5)
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
@@ -1739,8 +1741,8 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
     def invoke(self, context, event):
         mesh = get_selected_mesh()
         if mesh:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            self.filepath = f"{mesh.name}_perspective_view1_{timestamp}.png"
+            # Set initial filepath for first render
+            self.filepath = f"{mesh.name}_tooltip_picture200.png"
         return super().invoke(context, event)
     
     def execute(self, context):
@@ -1825,8 +1827,9 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
                 background.location = (0, 0)
                 env_tex.location = (-300, 0)
             
-            # Setup output path
-            context.scene.render.filepath = self.filepath
+            # Setup output path for first render
+            first_render_path = self.filepath
+            context.scene.render.filepath = first_render_path
             
             # Perform 1st render with transparency
             context.scene.render.film_transparent = True
@@ -1836,18 +1839,19 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             cam_obj.location = (
                 center[0] - distance * math.cos(math.radians(30)),
                 center[1] - distance * math.cos(math.radians(30)),
-                center[2] - distance * math.sin(math.radians(30))
+                center[2] + distance * math.sin(math.radians(30))
             )
             direction = Vector(center) - cam_obj.location
             rot_quat = direction.to_track_quat('-Z', 'Y')
             cam_obj.rotation_euler = rot_quat.to_euler()
             
+            # Setup output path for second render
+            second_render_path = os.path.join(os.path.dirname(first_render_path), f"{mesh.name}_hud_picture200.png")
+            context.scene.render.filepath = second_render_path
             context.scene.render.film_transparent = False
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            self.filepath = f"{self.filepath}_perspective_view2_{timestamp}.png"
             bpy.ops.render.render(write_still=True)
             
-            self.report({'INFO'}, f"Perspective render saved to: {self.filepath}")
+            self.report({'INFO'}, f"Perspective renders saved to:\n{first_render_path}\n{second_render_path}")
             
         except Exception as e:
             print(f"ERROR during render: {str(e)}")
