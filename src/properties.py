@@ -63,10 +63,11 @@ class Properties(bpy.types.PropertyGroup):
 
     icon_zoom: bpy.props.FloatProperty(
         name="Icon Zoom",
-        default=3.0,
-        min=0.1,
+        description="Controls the size of the icon in the image",
+        default=3.45,
+        min=0.01,
         max=10.0,
-        step=0.1,
+        step=0.01,
     )
 
 

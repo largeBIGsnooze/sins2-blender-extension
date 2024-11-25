@@ -1033,55 +1033,22 @@ def post_process_icon(image_path):
         
         # Process pixels
         new_pixels = []
-        border_width = 3
-        border_offset = 1  # Start border 1 pixel away from model
-        
-        def get_border_strength(x, y):
-            min_distance = float('inf')
-            
-            # Find distance to nearest model pixel
-            search_range = border_width + border_offset + 1
-            for dy in range(-search_range, search_range + 1):
-                for dx in range(-search_range, search_range + 1):
-                    ny = y + dy
-                    nx = x + dx
-                    if (0 <= ny < height and 0 <= nx < width):
-                        if pixel_array[ny][nx]:  # Found model pixel
-                            distance = math.sqrt(dx*dx + dy*dy)
-                            min_distance = min(min_distance, distance)
-            
-            if min_distance == float('inf') or min_distance < border_offset:
-                return 0.0
-            
-            # Calculate border strength based on distance
-            normalized_distance = (min_distance - border_offset) / border_width
-            if normalized_distance > 1.0:
-                return 0.0
-                
-            return 1.0 - normalized_distance
-
         scale_x = width / new_width
         scale_y = height / new_height
         
-        # Create border and solid white interior
+        # Create solid white silhouette of the model
         for y in range(new_height):
             for x in range(new_width):
                 orig_x = int(x * scale_x)
                 orig_y = int(y * scale_y)
                 is_model = pixel_array[orig_y][orig_x]
-                border_strength = get_border_strength(orig_x, orig_y)
                 
                 if is_model:
                     # Inside model - pure white
                     new_pixels.extend([1.0, 1.0, 1.0, 1.0])
                 else:
-                    # Outside model - either border or transparent
-                    if border_strength > 0:
-                        # Border - black with calculated opacity
-                        new_pixels.extend([0.0, 0.0, 0.0, border_strength])
-                    else:
-                        # Transparent
-                        new_pixels.extend([0.0, 0.0, 0.0, 0.0])
+                    # Transparent
+                    new_pixels.extend([0.0, 0.0, 0.0, 0.0])
         
         # Apply new pixels
         result.pixels = new_pixels
@@ -1570,20 +1537,33 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
 
 
 
-class SINSII_OT_Render_Top_Down(bpy.types.Operator):
-    bl_label = "Render Top Down View"
-    bl_description = "Creates a top-down orthographic render of the selected object"
+class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
+    bl_label = "Render Top Down Icon"
+    bl_description = "Creates a top-down orthographic render of the selected object in full white with a transparent background"
     bl_idname = "sinsii.render_top_down"
+    
+    # Add file selector properties
+    filename_ext = ".png"
+    filter_glob: bpy.props.StringProperty(
+        default="*.png",
+        options={'HIDDEN'},
+    )
     
     @classmethod
     def poll(cls, context):
         try:
             is_valid = context.mode == "OBJECT" and get_selected_mesh() is not None
-            print(f"Render button poll result: {is_valid}")
             return is_valid
         except Exception as e:
             print(f"Error in poll: {str(e)}")
             return False
+    
+    def invoke(self, context, event):
+        # Set default filename using mesh name and naming convention
+        mesh = get_selected_mesh()
+        if mesh:
+            self.filepath = f"{mesh.name}_main_view_icon.png"
+        return super().invoke(context, event)
     
     def execute(self, context):
         print("\nStarting top-down render...")
@@ -1678,7 +1658,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                     transparent.location = (-100, 100)
                     
                     # Setup emission for solid silhouette
-                    emission.inputs[0].default_value = (1, 1, 1, 1)  # Light gray for better post-processing
+                    emission.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # Pure white
                     emission.inputs[1].default_value = 1.0  # Emission strength
                     
                     # Setup connections
@@ -1689,21 +1669,17 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                     # Assign material
                     obj.active_material = icon_mat
             
-            # Setup output path
-            output_path = os.path.join(os.path.expanduser("~"), "Documents", "Sins2_Renders")
-            os.makedirs(output_path, exist_ok=True)
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"{mesh.name}_icon_{timestamp}.png"
-            context.scene.render.filepath = os.path.join(output_path, filename)
+            # Setup output path using the file selector path
+            context.scene.render.filepath = self.filepath
             
             # Perform render
             bpy.ops.render.render(write_still=True)
             
             # Post-process the render
-            if post_process_icon(context.scene.render.filepath):
-                self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
+            if post_process_icon(self.filepath):
+                self.report({'INFO'}, f"Icon render saved to: {self.filepath}")
             else:
-                self.report({'WARNING'}, f"Render saved but post-processing failed: {context.scene.render.filepath}")
+                self.report({'WARNING'}, f"Render saved but post-processing failed: {self.filepath}")
             
         except Exception as e:
             print(f"ERROR during render: {str(e)}")
