@@ -61,73 +61,12 @@ class Properties(bpy.types.PropertyGroup):
         update=meshpoint_type,
     )
 
-    icon_size: bpy.props.EnumProperty(
-        name="Icon Size",
-        items=[
-            ('200', '200x200', 'Recommended icon size'),
-            ('256', '256x256', 'Small icon size'),
-            ('512', '512x512', 'Medium icon size'),
-            ('1024', '1024x1024', 'Large icon size')
-        ],
-        default='200'
-    )
     icon_zoom: bpy.props.FloatProperty(
-        name="Camera Zoom",
+        name="Icon Zoom",
         default=3.0,
-        min=1.0,
-        max=5.0,
-        step=0.1
-    )
-    icon_border_thickness: bpy.props.IntProperty(
-        name="Border Thickness",
-        default=2,
-        min=1,
-        max=5
-    )
-    icon_detail_intensity: bpy.props.FloatProperty(
-        name="Detail Intensity",
-        default=0.7,
-        min=0.0,
-        max=1.0
-    )
-    icon_detail_threshold: bpy.props.FloatProperty(
-        name="Detail Threshold",
-        default=2,
-        min=0.001,
+        min=0.1,
         max=10.0,
-        step=0.001
-    )
-    icon_height_threshold: bpy.props.FloatProperty(
-        name="Height Threshold",
-        default=0.01,
-        min=0.001,
-        max=1.0,
-        step=0.001
-    )
-    icon_detail_contrast: bpy.props.FloatProperty(
-        name="Detail Contrast",
-        default=1.0,
-        min=0.0,
-        max=10.0
-    )
-    icon_rotation: bpy.props.FloatProperty(
-        name="Rotation",
-        default=90.0,
-        min=-360.0,
-        max=360.0,
-        step=1.0
-    )
-    icon_kernel_size: bpy.props.IntProperty(
-        name="Kernel Size",
-        default=5,
-        min=1,
-        max=15
-    )
-    icon_border_hardness: bpy.props.FloatProperty(
-        name="Border Hardness",
-        default=1.0,
-        min=0.0,
-        max=10.0
+        step=0.1,
     )
 
 

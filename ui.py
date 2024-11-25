@@ -139,6 +139,8 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.label(text="Select a mesh...")
         else:
             col.label(text=f"Selected: {mesh.name}")
+            col.operator("sinsii.render_top_down", icon='RENDER_STILL')
+            col.prop(context.scene.mesh_properties, "icon_zoom")
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
@@ -177,27 +179,6 @@ class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
                 meshpoint.name = re.sub(r"\.\d{3}", "", meshpoint_format(name, i))
         return {"FINISHED"}
 
-class SINSII_OT_Render_Top_Down_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_idname = "sinsii.render_top_down_panel"
-    bl_label = "Render Top Down"
-
-    def draw(self, context):
-        col = self.layout.column(align=True)
-        mesh = get_selected_mesh()
-        if not mesh or mesh.type != "MESH":
-            col.label(text="Select a mesh...")
-        else:
-            col.operator("sinsii.render_top_down", icon='RENDER_STILL')
-            col.prop(context.scene.mesh_properties, "icon_size")
-            col.prop(context.scene.mesh_properties, "icon_zoom")
-            col.prop(context.scene.mesh_properties, "icon_rotation")
-            col.prop(context.scene.mesh_properties, "icon_border_thickness")
-            col.prop(context.scene.mesh_properties, "icon_border_hardness")
-            col.prop(context.scene.mesh_properties, "icon_detail_intensity")
-            col.prop(context.scene.mesh_properties, "icon_detail_threshold")
-            col.prop(context.scene.mesh_properties, "icon_detail_contrast")
-            col.prop(context.scene.mesh_properties, "icon_height_threshold")
-            col.prop(context.scene.mesh_properties, "icon_kernel_size")
 
 class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Meshpoints"
@@ -1017,169 +998,105 @@ def join_meshes(meshes):
     return bpy.context.view_layer.objects.active
 
 
-def post_process_icon(image_path, context):
+def post_process_icon(image_path):
+    """Convert render to icon using Blender's built-in image processing"""
     try:
-        print("\nStarting post-processing...")
-        
         # Load the rendered image
         img = bpy.data.images.load(image_path, check_existing=True)
         if img is None:
             return False
             
-        # Get image pixels and convert to 2D array
+        # Get image pixels
         pixels = list(img.pixels[:])
         width = img.size[0]
         height = img.size[1]
-        icon_size = int(context.scene.mesh_properties.icon_size)
         
-        # Convert pixels to 2D array with height and normal information
+        # Create new image with smaller dimensions
+        new_width = 200
+        new_height = 200
+        result = bpy.data.images.new(
+            name="processed_icon",
+            width=new_width,
+            height=new_height,
+            alpha=True
+        )
+        
+        # Convert pixels to 2D array with alpha information
         pixel_array = []
         for y in range(height):
             row = []
             for x in range(width):
                 idx = (y * width + x) * 4
-                r, g, b, a = pixels[idx:idx+4]
-                height_value = b
-                normal_x = (r - 0.5) * 2
-                normal_y = (g - 0.5) * 2
-                row.append((height_value, normal_x, normal_y, a > 0.5))  # Use threshold for alpha
+                alpha = pixels[idx + 3] > 0.5  # Use alpha threshold
+                row.append(alpha)
             pixel_array.append(row)
         
         # Process pixels
         new_pixels = []
-        kernel_size = context.scene.mesh_properties.icon_kernel_size
-        height_threshold = context.scene.mesh_properties.icon_height_threshold * context.scene.mesh_properties.icon_detail_threshold
-        border_thickness = context.scene.mesh_properties.icon_border_thickness
-        border_hardness = context.scene.mesh_properties.icon_border_hardness
+        border_width = 3
+        border_offset = 1  # Start border 1 pixel away from model
         
         def get_border_strength(x, y):
             min_distance = float('inf')
-            angle = -math.radians(context.scene.mesh_properties.icon_rotation)
-            cos_angle = math.cos(angle)
-            sin_angle = math.sin(angle)
             
-            # Only process if we're outside the model
-            if pixel_array[y][x][3]:
-                return 0.0
-                
-            # Search for nearest model pixel
-            search_range = border_thickness + 1
-            
+            # Find distance to nearest model pixel
+            search_range = border_width + border_offset + 1
             for dy in range(-search_range, search_range + 1):
                 for dx in range(-search_range, search_range + 1):
-                    rotated_dx = dx * cos_angle - dy * sin_angle
-                    rotated_dy = dx * sin_angle + dy * cos_angle
-                    
-                    ny = int(y + rotated_dy)
-                    nx = int(x + rotated_dx)
-                    
+                    ny = y + dy
+                    nx = x + dx
                     if (0 <= ny < height and 0 <= nx < width):
-                        if pixel_array[ny][nx][3]:  # Found model pixel
+                        if pixel_array[ny][nx]:  # Found model pixel
                             distance = math.sqrt(dx*dx + dy*dy)
-                            if distance <= border_thickness:
-                                min_distance = min(min_distance, distance)
+                            min_distance = min(min_distance, distance)
             
-            if min_distance == float('inf'):
+            if min_distance == float('inf') or min_distance < border_offset:
+                return 0.0
+            
+            # Calculate border strength based on distance
+            normalized_distance = (min_distance - border_offset) / border_width
+            if normalized_distance > 1.0:
                 return 0.0
                 
-            # Calculate strength - closest to model = highest alpha
-            strength = min_distance / border_thickness
-            # Apply hardness
-            return pow(1.0 - strength, border_hardness)
+            return 1.0 - normalized_distance
 
-            # Something to do to the inside of the border?
-            # Calculate strength - starts at edge (distance = 0)
-            # strength = min_distance / border_thickness
-            # Apply hardness
-            # return pow(strength, border_hardness)
+        scale_x = width / new_width
+        scale_y = height / new_height
         
-        def get_edge_strength(x, y):
-            if not (kernel_size <= x < width - kernel_size and kernel_size <= y < height - kernel_size):
-                return 0
-                
-            gh = gx = gy = 0
-            total_weight = 0
-            
-            for dy in range(-kernel_size, kernel_size + 1):
-                for dx in range(-kernel_size, kernel_size + 1):
-                    distance = math.sqrt(dx*dx + dy*dy)
-                    if distance > kernel_size:
-                        continue
-                        
-                    weight = 1.0 - (distance / kernel_size)  # Linear falloff
-                    ny, nx = y + dy, x + dx
-                    
-                    center = pixel_array[y][x]
-                    neighbor = pixel_array[ny][nx]
-                    
-                    if center[3] and neighbor[3]:
-                        gh += abs(center[0] - neighbor[0]) * weight
-                        gx += abs(center[1] - neighbor[1]) * weight
-                        gy += abs(center[2] - neighbor[2]) * weight
-                        total_weight += weight
-            
-            if total_weight == 0:
-                return 0
-                
-            return (gh * 0.5 + (gx + gy) * 0.25) / total_weight
-
-        scale_x = width / icon_size
-        scale_y = height / icon_size
-        
-        for y in range(icon_size):
-            for x in range(icon_size):
+        # Create border and solid white interior
+        for y in range(new_height):
+            for x in range(new_width):
                 orig_x = int(x * scale_x)
                 orig_y = int(y * scale_y)
-                _, _, _, alpha = pixel_array[orig_y][orig_x]
-                
+                is_model = pixel_array[orig_y][orig_x]
                 border_strength = get_border_strength(orig_x, orig_y)
                 
-                if alpha:
-                    # Inside the model - always fully opaque
-                    edge_strength = get_edge_strength(orig_x, orig_y)
-                    if edge_strength > height_threshold:
-                        # Detail lines
-                        strength_normalized = min(
-                            (edge_strength - height_threshold) / (height_threshold * context.scene.mesh_properties.icon_detail_contrast), 
-                            1.0
-                        )
-                        color = 1.0 - (strength_normalized * context.scene.mesh_properties.icon_detail_intensity)
-                    else:
-                        # Interior: Pure white
-                        color = 1.0
-                    alpha = 1.0  # Always fully opaque inside
+                if is_model:
+                    # Inside model - pure white
+                    new_pixels.extend([1.0, 1.0, 1.0, 1.0])
                 else:
-                    # Outside the model
+                    # Outside model - either border or transparent
                     if border_strength > 0:
-                        # Border: Solid black with varying opacity
-                        color = 0.0
-                        alpha = border_strength
+                        # Border - black with calculated opacity
+                        new_pixels.extend([0.0, 0.0, 0.0, border_strength])
                     else:
-                        # Fully transparent
-                        color = 0.0
-                        alpha = 0.0
-                
-                new_pixels.extend([color, color, color, alpha])
+                        # Transparent
+                        new_pixels.extend([0.0, 0.0, 0.0, 0.0])
         
-        # Create and save result
-        result = bpy.data.images.new(
-            name="processed_icon",
-            width=icon_size,
-            height=icon_size,
-            alpha=True
-        )
+        # Apply new pixels
         result.pixels = new_pixels
+        
+        # Save result
         result.save_render(image_path)
         
         # Clean up
         bpy.data.images.remove(img)
         bpy.data.images.remove(result)
+        
         return True
         
     except Exception as e:
         print(f"Error in post-processing: {str(e)}")
-        import traceback
-        print(f"Traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -1652,9 +1569,21 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     return material
 
 
+
 class SINSII_OT_Render_Top_Down(bpy.types.Operator):
-    bl_idname = "sinsii.render_top_down"
     bl_label = "Render Top Down View"
+    bl_description = "Creates a top-down orthographic render of the selected object"
+    bl_idname = "sinsii.render_top_down"
+    
+    @classmethod
+    def poll(cls, context):
+        try:
+            is_valid = context.mode == "OBJECT" and get_selected_mesh() is not None
+            print(f"Render button poll result: {is_valid}")
+            return is_valid
+        except Exception as e:
+            print(f"Error in poll: {str(e)}")
+            return False
     
     def execute(self, context):
         print("\nStarting top-down render...")
@@ -1666,14 +1595,13 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
         original_film_exposure = context.scene.view_settings.exposure
         original_background = context.scene.world.node_tree.nodes["Background"].inputs[0].default_value
         original_film_transparent = context.scene.render.film_transparent
-        original_materials = {}  # Initialize here, outside try block
         
         try:
             mesh = get_selected_mesh()
             if not mesh:
                 self.report({'ERROR'}, "No mesh selected!")
                 return {'CANCELLED'}
-            
+                
             # Create camera
             cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
             cam_data.type = 'ORTHO'
@@ -1687,34 +1615,32 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                 self.report({'ERROR'}, f"Failed to calculate mesh bounds: {str(e)}")
                 return {'CANCELLED'}
             
-            # Set clip end based on zoom level and bounding sphere
-            icon_zoom = context.scene.mesh_properties.icon_zoom
-            cam_data.clip_end = bounding_sphere_radius * icon_zoom * 10
-            
+            # Setup camera
             cam_obj = bpy.data.objects.new('Top_Down_Camera', cam_data)
             context.scene.collection.objects.link(cam_obj)
-            
-            # Get rotation in radians
-            icon_rotation = math.radians(context.scene.mesh_properties.icon_rotation)
-            
-            # Set camera position and rotation
             cam_obj.location = (
                 mesh.location.x,
                 mesh.location.y,
-                mesh.location.z + bounding_sphere_radius * icon_zoom
+                mesh.location.z + bounding_sphere_radius * 2
             )
-            cam_obj.rotation_euler = (0, 0, -icon_rotation)  # Apply rotation to camera object (negative to match Sins2 default rotation)
-            
-            cam_data.ortho_scale = bounding_sphere_radius * (icon_zoom + 0.2)
+            cam_obj.rotation_euler = (0, 0, math.radians(-90))
+            cam_data.ortho_scale = bounding_sphere_radius * context.scene.mesh_properties.icon_zoom
             context.scene.camera = cam_obj
             
             # Setup render settings for icon-style output
             context.scene.render.engine = 'CYCLES'
             context.scene.cycles.samples = 64
-            icon_size = int(context.scene.mesh_properties.icon_size)
-            context.scene.render.resolution_x = icon_size
-            context.scene.render.resolution_y = icon_size
-            context.scene.render.film_transparent = True  # Enable transparency
+            context.scene.render.resolution_x = 200
+            context.scene.render.resolution_y = 200
+            context.scene.render.film_transparent = True
+            
+            # Add these new settings for pure white output
+            context.scene.view_settings.view_transform = 'Standard'
+            context.scene.view_settings.look = 'None'
+            context.scene.view_settings.exposure = 0
+            context.scene.view_settings.gamma = 1.0
+            context.scene.render.filter_size = 1.5  # Sharper pixels
+            
             context.scene.render.image_settings.file_format = 'PNG'
             context.scene.render.image_settings.color_mode = 'RGBA'
             context.scene.render.image_settings.color_depth = '8'
@@ -1752,9 +1678,8 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
                     transparent.location = (-100, 100)
                     
                     # Setup emission for solid silhouette
-                    emission.inputs[0].default_value = (1.0, 1.0, 1.0, 1)  # Pure white for better post-processing
+                    emission.inputs[0].default_value = (1, 1, 1, 1)  # Light gray for better post-processing
                     emission.inputs[1].default_value = 1.0  # Emission strength
-                    mix_shader.inputs[0].default_value = 1.0  # Make sure the material is fully opaque
                     
                     # Setup connections
                     links.new(transparent.outputs[0], mix_shader.inputs[1])
@@ -1775,7 +1700,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator):
             bpy.ops.render.render(write_still=True)
             
             # Post-process the render
-            if post_process_icon(context.scene.render.filepath, context):
+            if post_process_icon(context.scene.render.filepath):
                 self.report({'INFO'}, f"Icon render saved to: {context.scene.render.filepath}")
             else:
                 self.report({'WARNING'}, f"Render saved but post-processing failed: {context.scene.render.filepath}")
@@ -1835,7 +1760,6 @@ classes = (
     SINSII_PT_Meshpoint_Turret,
     SINSII_PT_Meshpoint,
     SINSII_OT_Render_Top_Down,
-    SINSII_OT_Render_Top_Down_Panel,
 )
 
 
