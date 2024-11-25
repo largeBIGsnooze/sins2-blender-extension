@@ -140,6 +140,10 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
         else:
             col.label(text=f"Selected: {mesh.name}")
             col.operator("sinsii.render_top_down", icon='RENDER_STILL')
+            hdri_row = col.row()
+            hdri_row.prop(context.scene.mesh_properties, "hdri_path")
+            hdri_row.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
+            col.operator("sinsii.render_perspective", icon='RENDER_STILL')
             col.prop(context.scene.mesh_properties, "icon_zoom")
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
@@ -1716,6 +1720,153 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
+class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
+    bl_label = "Render Perspective View"
+    bl_description = "Creates a perspective render of the model with original materials"
+    bl_idname = "sinsii.render_perspective"
+    
+    filename_ext = ".png"
+    filter_glob: bpy.props.StringProperty(
+        default="*.png",
+        options={'HIDDEN'},
+    )
+    
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT" and get_selected_mesh() is not None
+    
+    def invoke(self, context, event):
+        mesh = get_selected_mesh()
+        if mesh:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            self.filepath = f"{mesh.name}_perspective_{timestamp}.png"
+        return super().invoke(context, event)
+    
+    def execute(self, context):
+        print("\nStarting perspective render...")
+        
+        # Store original settings
+        original_camera = context.scene.camera
+        original_engine = context.scene.render.engine
+        original_samples = context.scene.cycles.samples
+        original_film_exposure = context.scene.view_settings.exposure
+        original_world = context.scene.world.copy()
+        
+        try:
+            mesh = get_selected_mesh()
+            if not mesh:
+                self.report({'ERROR'}, "No mesh selected!")
+                return {'CANCELLED'}
+            
+            # Calculate camera position based on bounding box
+            bounding_sphere_radius, _, center = get_bounding_box(mesh)
+            if not bounding_sphere_radius or bounding_sphere_radius <= 0:
+                raise ValueError("Invalid bounding sphere radius")
+            
+            # Create camera
+            cam_data = bpy.data.cameras.new(name='Perspective_Camera')
+            cam_data.type = 'PERSP'
+            cam_data.lens = 50  # 50mm focal length
+            cam_data.clip_end = 1000000
+            
+            # Position camera diagonally from the model
+            distance = bounding_sphere_radius * context.scene.mesh_properties.icon_zoom
+            cam_obj = bpy.data.objects.new('Perspective_Camera', cam_data)
+            context.scene.collection.objects.link(cam_obj)
+            
+            # Position camera at 45 degree angles
+            cam_obj.location = (
+                center[0] + distance * math.cos(math.radians(45)),
+                center[1] - distance * math.cos(math.radians(45)),
+                center[2] + distance * math.sin(math.radians(45))
+            )
+            
+            # Point camera at model center
+            direction = Vector(center) - cam_obj.location
+            rot_quat = direction.to_track_quat('-Z', 'Y')
+            cam_obj.rotation_euler = rot_quat.to_euler()
+            
+            context.scene.camera = cam_obj
+            
+            # Setup render settings
+            context.scene.render.engine = 'CYCLES'
+            context.scene.cycles.samples = 128
+            context.scene.render.resolution_x = 1920
+            context.scene.render.resolution_y = 1080
+            context.scene.render.film_transparent = False
+            
+            # Setup world HDRI
+            if context.scene.mesh_properties.hdri_path:
+                context.scene.world.use_nodes = True
+                nodes = context.scene.world.node_tree.nodes
+                links = context.scene.world.node_tree.links
+                
+                # Clear existing nodes
+                nodes.clear()
+                
+                # Create nodes
+                background = nodes.new('ShaderNodeBackground')
+                env_tex = nodes.new('ShaderNodeTexEnvironment')
+                output = nodes.new('ShaderNodeOutputWorld')
+                
+                # Load HDRI
+                env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
+                
+                # Connect nodes
+                links.new(env_tex.outputs['Color'], background.inputs['Color'])
+                links.new(background.outputs['Background'], output.inputs['Surface'])
+                
+                # Position nodes
+                output.location = (300, 0)
+                background.location = (0, 0)
+                env_tex.location = (-300, 0)
+            
+            # Setup output path
+            context.scene.render.filepath = self.filepath
+            
+            # Perform render
+            bpy.ops.render.render(write_still=True)
+            
+            self.report({'INFO'}, f"Perspective render saved to: {self.filepath}")
+            
+        except Exception as e:
+            print(f"ERROR during render: {str(e)}")
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}")
+            self.report({'ERROR'}, f"Render failed: {str(e)}")
+            return {'CANCELLED'}
+            
+        finally:
+            # Restore original settings
+            context.scene.camera = original_camera
+            context.scene.render.engine = original_engine
+            context.scene.cycles.samples = original_samples
+            context.scene.view_settings.exposure = original_film_exposure
+            context.scene.world = original_world
+            
+            # Clean up temporary camera
+            if 'cam_obj' in locals():
+                bpy.data.objects.remove(cam_obj, do_unlink=True)
+            if 'cam_data' in locals():
+                bpy.data.cameras.remove(cam_data, do_unlink=True)
+        
+        return {'FINISHED'}
+
+
+class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
+    bl_idname = "sinsii.pick_hdri"
+    bl_label = "Select HDRI"
+    
+    filename_ext = ".hdr;.exr"
+    filter_glob: bpy.props.StringProperty(
+        default="*.hdr;*.exr",
+        options={'HIDDEN'},
+    )
+    
+    def execute(self, context):
+        context.scene.mesh_properties.hdri_path = self.filepath
+        return {'FINISHED'}
+
 classes = (
     SINSII_OT_Import_Mesh,
     SINSII_OT_Export_Mesh,
@@ -1736,6 +1887,8 @@ classes = (
     SINSII_PT_Meshpoint_Turret,
     SINSII_PT_Meshpoint,
     SINSII_OT_Render_Top_Down,
+    SINSII_OT_Render_Perspective,
+    SINSII_OT_Pick_HDRI,
 )
 
 

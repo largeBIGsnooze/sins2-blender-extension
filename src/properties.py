@@ -70,6 +70,12 @@ class Properties(bpy.types.PropertyGroup):
         step=0.01,
     )
 
+    hdri_path: bpy.props.StringProperty(
+        name="HDRi Path",
+        description="Path to the HDRi file",
+        default="",
+    )
+
 
 def register():
     bpy.utils.register_class(Properties)
