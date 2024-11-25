@@ -95,6 +95,47 @@ class Properties(bpy.types.PropertyGroup):
         default="",
     )
 
+    # Skybox blend factors
+    radiance_blend: bpy.props.FloatProperty(
+        name="Radiance Blend",
+        description="Blend factor for radiance texture",
+        default=0.8,
+        min=0.0,
+        max=1.0
+    )
+    
+    starfield_blend: bpy.props.FloatProperty(
+        name="Starfield Blend",
+        description="Blend factor for starfield layer",
+        default=0.4,
+        min=0.0,
+        max=1.0
+    )
+    
+    starfield_brightness: bpy.props.FloatProperty(
+        name="Starfield Brightness",
+        description="Brightness multiplier for starfield",
+        default=2.0,
+        min=0.0,
+        max=10.0
+    )
+    
+    cloud_blend: bpy.props.FloatProperty(
+        name="Cloud Blend",
+        description="Blend factor for cloud layer",
+        default=0.9,
+        min=0.0,
+        max=1.0
+    )
+    
+    cloud_fresnel_ior: bpy.props.FloatProperty(
+        name="Cloud Edge IOR",
+        description="IOR for cloud edge fade effect",
+        default=1.2,
+        min=1.0,
+        max=5.0
+    )
+
 
 def register():
     bpy.utils.register_class(Properties)

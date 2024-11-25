@@ -148,6 +148,12 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             if context.scene.mesh_properties.use_skybox:
                 box.operator("sinsii.pick_skybox", icon='FILE_FOLDER')
                 box.label(text=os.path.basename(context.scene.mesh_properties.skybox_path))
+                col = box.column(align=True)
+                col.prop(context.scene.mesh_properties, "radiance_blend")
+                col.prop(context.scene.mesh_properties, "starfield_blend")
+                col.prop(context.scene.mesh_properties, "starfield_brightness")
+                col.prop(context.scene.mesh_properties, "cloud_blend")
+                col.prop(context.scene.mesh_properties, "cloud_fresnel_ior")
             else:
                 box.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
                 box.label(text=os.path.basename(context.scene.mesh_properties.hdri_path))
@@ -1319,6 +1325,7 @@ def load_mesh_material(name, filepath, textures_path):
     ]
 
 
+
 def create_composite_nodes():
     bpy.context.scene.use_nodes = True
     node_tree = bpy.context.scene.node_tree
@@ -1740,76 +1747,304 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
         options={'HIDDEN'},
     )
 
+    def create_reflection_control_group():
+        """Creates a node group for DFG-based reflection control"""
+        # Check if group already exists
+        group_name = 'SkyboxReflectionControl'
+        if group_name in bpy.data.node_groups:
+            return bpy.data.node_groups[group_name]
+        
+        # Create new node group
+        group = bpy.data.node_groups.new(type='ShaderNodeTree', name=group_name)
+        
+        # Create input/output sockets
+        group.inputs.clear()
+        group.outputs.clear()
+        
+        # Add the input sockets
+        group.inputs.new('NodeSocketFloat', 'Diffuse')
+        group.inputs.new('NodeSocketFloat', 'Fresnel')
+        group.inputs.new('NodeSocketFloat', 'Gloss')
+        
+        # Add the output socket
+        group.outputs.new('NodeSocketFloat', 'Reflection')
+        
+        # Create nodes
+        nodes = group.nodes
+        
+        # Add input/output nodes
+        input_node = nodes.new('NodeGroupInput')
+        output_node = nodes.new('NodeGroupOutput')
+        
+        # Add processing nodes
+        fresnel_node = nodes.new('ShaderNodeFresnel')
+        fresnel_node.inputs['IOR'].default_value = 1.45
+        
+        multiply_node = nodes.new('ShaderNodeMath')
+        multiply_node.operation = 'MULTIPLY'
+        
+        mix_node = nodes.new('ShaderNodeMixRGB')
+        mix_node.blend_type = 'MULTIPLY'
+        
+        final_multiply = nodes.new('ShaderNodeMath')
+        final_multiply.operation = 'MULTIPLY'
+        final_multiply.inputs[1].default_value = 0.8
+        
+        # Position nodes
+        input_node.location = (-400, 0)
+        fresnel_node.location = (-200, 100)
+        multiply_node.location = (0, 0)
+        mix_node.location = (200, 0)
+        final_multiply.location = (400, 0)
+        output_node.location = (600, 0)
+        
+        # Create links
+        links = group.links
+        links.new(input_node.outputs['Fresnel'], multiply_node.inputs[0])
+        links.new(fresnel_node.outputs[0], multiply_node.inputs[1])
+        links.new(multiply_node.outputs[0], mix_node.inputs[0])
+        links.new(input_node.outputs['Gloss'], mix_node.inputs[1])
+        links.new(mix_node.outputs[0], final_multiply.inputs[0])
+        links.new(final_multiply.outputs[0], output_node.inputs[0])
+        
+        return group
+
     
     def setup_world_lighting(self, context, nodes, links):
         """Setup world lighting using either HDRI or skybox"""
         nodes.clear()
-        background = nodes.new('ShaderNodeBackground')
-        output = nodes.new('ShaderNodeOutputWorld')
         
         if context.scene.mesh_properties.use_skybox and context.scene.mesh_properties.skybox_path:
-            print("\nAttempting to load skybox...")
-            print(f"Skybox path: {context.scene.mesh_properties.skybox_path}")
+            print("\nSetting up skybox lighting...")
             try:
-                # Load and parse skybox file
                 with open(context.scene.mesh_properties.skybox_path, 'r') as f:
                     skybox_data = json.load(f)
-                    print(f"Loaded skybox data: {skybox_data}")
                 
-                # Get skybox directory
+                # Setup paths
                 skybox_dir = os.path.dirname(context.scene.mesh_properties.skybox_path)
-                game_dir = os.path.dirname(skybox_dir)  # Up one level from skyboxes folder
+                game_dir = os.path.dirname(skybox_dir)
                 textures_dir = os.path.join(game_dir, "textures")
-                
-                # Get main skybox texture from first layer
-                if 'skybox_layers' in skybox_data and len(skybox_data['skybox_layers']) > 0:
-                    main_texture = skybox_data['skybox_layers'][0]['base_color_texture']
-                    texture_path = os.path.join(textures_dir, f"{main_texture}.dds")
-                    print(f"Loading main skybox texture: {texture_path}")
+                temp_dir = os.path.join(TEMP_DIR, "skybox_temp")
+                os.makedirs(temp_dir, exist_ok=True)
+
+                # Convert textures first
+                try:
+                    # Convert radiance texture
+                    if 'radiance_texture' in skybox_data:
+                        rad_path = os.path.join(textures_dir, f"{skybox_data['radiance_texture']}.dds")
+                        if os.path.exists(rad_path):
+                            run_texconv(rad_path, temp_dir)
                     
-                    if os.path.exists(texture_path):
-                        # Create temporary directory for converted texture
-                        temp_dir = os.path.join(TEMP_DIR, "skybox_temp")
-                        os.makedirs(temp_dir, exist_ok=True)
+                    # Convert starfield texture
+                    if 'starfield_layers' in skybox_data and skybox_data['starfield_layers']:
+                        star_path = os.path.join(textures_dir, f"{skybox_data['starfield_layers'][0]['base_color_texture']}.dds")
+                        if os.path.exists(star_path):
+                            run_texconv(star_path, temp_dir)
+                    
+                    # Convert skybox texture
+                    if 'skybox_layers' in skybox_data and skybox_data['skybox_layers']:
+                        sky_path = os.path.join(textures_dir, f"{skybox_data['skybox_layers'][0]['base_color_texture']}.dds")
+                        if os.path.exists(sky_path):
+                            run_texconv(sky_path, temp_dir)
+                    
+                except Exception as e:
+                    print(f"Error converting textures: {str(e)}")
+                    raise
+
+                try:
+                    # Create base nodes
+                    output = nodes.new('ShaderNodeOutputWorld')
+                    background = nodes.new('ShaderNodeBackground')
+                    
+                    # Set background color and use alpha for strength
+                    if 'background_color' in skybox_data:
+                        bg_color = skybox_data['background_color']
+                        # Convert ARGB hex to float values
+                        a = int(bg_color[0:2], 16) / 255  # Alpha
+                        r = int(bg_color[2:4], 16) / 255
+                        g = int(bg_color[4:6], 16) / 255
+                        b = int(bg_color[6:8], 16) / 255
                         
-                        # Convert DDS to a format Blender can read
-                        print("Converting DDS texture...")
-                        run_texconv(texture_path, temp_dir)
-                        converted_path = os.path.join(temp_dir, f"{main_texture}.DDS")
+                        # Create RGB Background
+                        rgb_background = nodes.new('ShaderNodeRGB')
+                        rgb_background.outputs[0].default_value = (r, g, b, 1.0)  # Alpha ignored in background
                         
-                        # Create environment texture node
-                        env_tex = nodes.new('ShaderNodeTexEnvironment')
-                        try:
-                            img = bpy.data.images.load(converted_path)
-                            print(f"Loaded image: {img.name} ({img.size[0]}x{img.size[1]})")
-                            env_tex.image = img
-                            links.new(env_tex.outputs['Color'], background.inputs['Color'])
-                        except Exception as img_error:
-                            print(f"Error loading texture: {str(img_error)}")
-                            raise
+                        # Use alpha to control background strength
+                        background.inputs['Color'].default_value = (r, g, b, 1.0)
+                        background.inputs['Strength'].default_value = a * context.scene.mesh_properties.hdri_strength
+                    
+                    mix_shader = background  # Initial mix shader reference
+                    
+                    # Radiance texture (HDR environment)
+                    if 'radiance_texture' in skybox_data:
+                        rad_tex = nodes.new('ShaderNodeTexEnvironment')
+                        rad_img = bpy.data.images.load(os.path.join(temp_dir, f"{skybox_data['radiance_texture']}.DDS"))
+                        rad_img.colorspace_settings.name = 'Linear Rec.709'
+                        rad_tex.image = rad_img
                         
-                        # Clean up temp files
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                    else:
-                        raise FileNotFoundError(f"Texture file not found: {texture_path}")
-                else:
-                    raise KeyError("No skybox layers found in skybox data")
+                        # Add proper environment coordinates
+                        texcoord = nodes.new('ShaderNodeTexCoord')
+                        mapping = nodes.new('ShaderNodeMapping')
+                        # Use reflection for environment mapping
+                        links.new(texcoord.outputs['Reflection'], mapping.inputs['Vector'])
+                        links.new(mapping.outputs['Vector'], rad_tex.inputs['Vector'])
+                        
+                        # Mix radiance with background color
+                        rad_mix = nodes.new('ShaderNodeMixShader')
+                        rad_mix.inputs[0].default_value = context.scene.mesh_properties.radiance_blend
+                        
+                        rad_bg = nodes.new('ShaderNodeBackground')
+                        links.new(rad_tex.outputs['Color'], rad_bg.inputs['Color'])
+                        links.new(background.outputs[0], rad_mix.inputs[1])
+                        links.new(rad_bg.outputs[0], rad_mix.inputs[2])
+                        
+                        mix_shader = rad_mix
+                    
+                    # Starfield layer
+                    if 'starfield_layers' in skybox_data and skybox_data['starfield_layers']:
+                        starfield = skybox_data['starfield_layers'][0]
+                        star_tex = nodes.new('ShaderNodeTexImage')
+                        star_img = bpy.data.images.load(os.path.join(temp_dir, f"{starfield['base_color_texture']}.DDS"))
+                        star_img.colorspace_settings.name = 'sRGB'
+                        star_tex.image = star_img
+                        star_tex.extension = 'EXTEND'  # Prevent texture repeating
+                        
+                        # Add environment mapping for starfield
+                        star_coord = nodes.new('ShaderNodeTexCoord')
+                        star_mapping = nodes.new('ShaderNodeMapping')
+                        # Use reflection for consistent environment look
+                        links.new(star_coord.outputs['Reflection'], star_mapping.inputs['Vector'])
+                        
+                        # Apply starfield zoom
+                        star_mapping.inputs['Scale'].default_value = (
+                            starfield.get('zoom', 1.0),
+                            starfield.get('zoom', 1.0),
+                            starfield.get('zoom', 1.0)
+                        )
+                        
+                        links.new(star_mapping.outputs['Vector'], star_tex.inputs['Vector'])
+                        
+                        # Create starfield background
+                        star_bg = nodes.new('ShaderNodeBackground')
+                        
+                        # Add brightness control
+                        bright_multiply = nodes.new('ShaderNodeMixRGB')
+                        bright_multiply.blend_type = 'MULTIPLY'
+                        bright_multiply.inputs[2].default_value = (2.0, 2.0, 2.0, 1.0)  # Brightness boost
+                        
+                        links.new(star_tex.outputs['Color'], bright_multiply.inputs[1])
+                        links.new(bright_multiply.outputs['Color'], star_bg.inputs['Color'])
+                        
+                        # Mix with previous result
+                        star_mix = nodes.new('ShaderNodeMixShader')
+                        links.new(mix_shader.outputs[0], star_mix.inputs[1])
+                        links.new(star_bg.outputs[0], star_mix.inputs[2])
+                        star_mix.inputs[0].default_value = 0.4
+                        mix_shader = star_mix
+                    
+                    # Skybox clouds
+                    if 'skybox_layers' in skybox_data and skybox_data['skybox_layers']:
+                        skybox = skybox_data['skybox_layers'][0]
+                        skybox_tex = nodes.new('ShaderNodeTexImage')
+                        skybox_img = bpy.data.images.load(os.path.join(temp_dir, f"{skybox['base_color_texture']}.DDS"))
+                        skybox_img.colorspace_settings.name = 'sRGB'
+                        skybox_tex.image = skybox_img
+                        skybox_tex.extension = 'EXTEND'  # Prevent texture repeating
+                        
+                        # Add environment mapping for clouds
+                        cloud_coord = nodes.new('ShaderNodeTexCoord')
+                        cloud_mapping = nodes.new('ShaderNodeMapping')
+                        # Use reflection for environment mapping
+                        links.new(cloud_coord.outputs['Reflection'], cloud_mapping.inputs['Vector'])
+                        
+                        # Optional rotation for clouds
+                        cloud_mapping.inputs['Rotation'].default_value.y = math.radians(180)  # Adjust as needed
+                        
+                        links.new(cloud_mapping.outputs['Vector'], skybox_tex.inputs['Vector'])
+                        
+                        # Create cloud background
+                        skybox_bg = nodes.new('ShaderNodeBackground')
+                        
+                        # Add fresnel-based edge fade
+                        fresnel = nodes.new('ShaderNodeFresnel')
+                        fresnel.inputs['IOR'].default_value = context.scene.mesh_properties.cloud_fresnel_ior
+                        
+                        # Mix with fresnel
+                        cloud_mix = nodes.new('ShaderNodeMixRGB')
+                        cloud_mix.blend_type = 'MULTIPLY'
+                        links.new(fresnel.outputs['Fac'], cloud_mix.inputs[0])
+                        links.new(skybox_tex.outputs['Color'], cloud_mix.inputs[1])
+                        links.new(cloud_mix.outputs['Color'], skybox_bg.inputs['Color'])
+                        
+                        # Final mix
+                        final_mix = nodes.new('ShaderNodeMixShader')
+                        links.new(mix_shader.outputs[0], final_mix.inputs[1])
+                        links.new(skybox_bg.outputs[0], final_mix.inputs[2])
+                        final_mix.inputs[0].default_value = context.scene.mesh_properties.cloud_blend
+                        mix_shader = final_mix
+                    
+                    # Add DFG texture (direct from PNG, no conversion needed)
+                    if 'dfg_texture' in skybox_data:
+                        dfg_path = os.path.join(textures_dir, skybox_data['dfg_texture'])  # No .dds extension
+                        if os.path.exists(dfg_path):
+                            dfg_tex = nodes.new('ShaderNodeTexImage')
+                            dfg_img = bpy.data.images.load(dfg_path)
+                            dfg_img.colorspace_settings.name = 'Non-Color'
+                            dfg_tex.image = dfg_img
+                            
+                            # Separate RGB channels for different PBR factors
+                            separate_rgb = nodes.new('ShaderNodeSeparateRGB')
+                            links.new(dfg_tex.outputs['Color'], separate_rgb.inputs['Image'])
+                            
+                            # Create reflection control group
+                            refl_group = nodes.new('ShaderNodeGroup')
+                            refl_group.node_tree = create_reflection_control_group()
+                            
+                            # Connect DFG channels
+                            links.new(separate_rgb.outputs['R'], refl_group.inputs['Diffuse'])
+                            links.new(separate_rgb.outputs['G'], refl_group.inputs['Fresnel'])
+                            links.new(separate_rgb.outputs['B'], refl_group.inputs['Gloss'])
+                            
+                            # Mix with radiance if present
+                            if 'radiance_texture' in skybox_data:
+                                # Modify existing radiance setup to use DFG
+                                rad_mix = nodes.new('ShaderNodeMixShader')
+                                rad_bg = nodes.new('ShaderNodeBackground')
+                                
+                                # Apply DFG reflection control
+                                links.new(refl_group.outputs['Reflection'], rad_mix.inputs[0])
+                                links.new(rad_tex.outputs['Color'], rad_bg.inputs['Color'])
+                                links.new(rad_bg.outputs[0], rad_mix.inputs[2])
+                                
+                                mix_shader = rad_mix
+                    
+                    # Connect final output
+                    links.new(mix_shader.outputs[0], output.inputs['Surface'])
+                    
+                except Exception as e:
+                    print(f"Error setting up skybox nodes: {str(e)}")
+                    raise
                 
             except Exception as e:
                 print(f"\nSkybox loading failed: {str(e)}")
                 self.report({'WARNING'}, f"Failed to load skybox: {str(e)}. Falling back to HDRI.")
                 context.scene.mesh_properties.use_skybox = False
+            # finally:
+            #     # Clean up temp files (leave for now to debug)
+            #     try:
+            #         shutil.rmtree(temp_dir, ignore_errors=True)
+            #     except Exception as e:
+            #         print(f"Error cleaning up temp files: {str(e)}")
         
         if not context.scene.mesh_properties.use_skybox and context.scene.mesh_properties.hdri_path:
             print("\nFalling back to HDRI setup...")
-            # Setup HDRI
+            background = nodes.new('ShaderNodeBackground')
+            output = nodes.new('ShaderNodeOutputWorld')
             env_tex = nodes.new('ShaderNodeTexEnvironment')
             env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
             links.new(env_tex.outputs['Color'], background.inputs['Color'])
-        
-        # Set strength and connect to output
-        background.inputs['Strength'].default_value = context.scene.mesh_properties.hdri_strength
-        links.new(background.outputs['Background'], output.inputs['Surface'])
+            background.inputs['Strength'].default_value = context.scene.mesh_properties.hdri_strength
+            links.new(background.outputs['Background'], output.inputs['Surface'])
 
     
     @classmethod
@@ -1831,7 +2066,7 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
         original_engine = context.scene.render.engine
         original_samples = context.scene.cycles.samples
         original_film_exposure = context.scene.view_settings.exposure
-        original_world = context.scene.world.copy()
+        original_world = save_world_lighting(context)  # Save world lighting
         
         try:
             mesh = get_selected_mesh()
@@ -1958,7 +2193,7 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             context.scene.render.engine = original_engine
             context.scene.cycles.samples = original_samples
             context.scene.view_settings.exposure = original_film_exposure
-            context.scene.world = original_world
+            # restore_world_lighting(context, original_world)  # Restore world lighting
             
             # Clean up temporary camera
             if 'cam_obj' in locals():
@@ -1967,6 +2202,20 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
                 bpy.data.cameras.remove(cam_data, do_unlink=True)
         
         return {'FINISHED'}
+
+
+def save_world_lighting(context):
+    """Save the current world lighting settings"""
+    if context.scene.world:
+        # Create a copy of the current world
+        saved_world = context.scene.world.copy()
+        return saved_world
+    return None
+
+def restore_world_lighting(context, saved_world):
+    """Restore previously saved world lighting settings"""
+    if saved_world:
+        context.scene.world = saved_world
 
 
 class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
