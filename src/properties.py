@@ -76,6 +76,13 @@ class Properties(bpy.types.PropertyGroup):
         default="",
     )
 
+    hdri_strength: bpy.props.FloatProperty(
+        name="HDRi Strength",
+        description="Strength of the HDRi",
+        default=1.0,
+        min=0.0,
+    )
+
 
 def register():
     bpy.utils.register_class(Properties)
