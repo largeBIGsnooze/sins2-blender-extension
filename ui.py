@@ -9,6 +9,9 @@ from .src.lib.github_downloader import Github
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
 from .config import AddonSettings
+from .src.lib.helpers.mesh_utils import get_bounding_box
+from .src.lib.render_manager import RenderManager
+from .src.lib.image_processor import IconProcessor
 
 TEMP_DIR = tempfile.gettempdir()
 MESHPOINT_COLOR = (0.18039216101169586, 0.7686275243759155, 1.0)
@@ -127,6 +130,314 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
         layout.separator()
 
 
+class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "Render Settings"
+    bl_idname = "SINSII_PT_render_settings"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_order = 2
+    
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.mesh_properties
+        
+        # Render Buttons
+        box = layout.box()
+        box.label(text="Render", icon='RENDER_STILL')
+        row = box.row()
+        selected_mesh = get_selected_mesh()
+        if selected_mesh:
+            row.operator("sinsii.render_perspective", text="Render Scene")
+            row.operator("sinsii.render_top_down", text="Render Icon")
+        else:
+            row.label(text="No mesh selected!", icon='ERROR')
+        
+        # Icon Settings
+        box = layout.box()
+        box.label(text="Icon Settings", icon='IMAGE_DATA')
+        box.prop(props, "icon_zoom", text="Icon Zoom")
+        
+        # HDRI Settings
+        box = layout.box()
+        box.label(text="HDRI Settings", icon='WORLD')
+        row = box.row(align=True)
+        row.prop(props, "hdri_path", text="")
+        row.operator("sinsii.pick_hdri", icon='FILE_FOLDER', text="")
+        box.prop(props, "hdri_strength", text="Strength")
+        
+        # Template Selection
+        box = layout.box()
+        box.label(text="Camera Templates", icon='CAMERA_DATA')
+        
+        # Check if we have any cameras set up
+        if len(props.cameras) == 0:
+            row = box.row()
+            row.operator("sinsii.load_default_template", icon='FILE_TICK', text="Load Default Template")
+        else:
+            row = box.row()
+            row.prop(props, "camera_template", text="")
+
+        
+        # Template Management
+        if props.camera_template == 'CUSTOM':
+            row = box.row()
+            row.operator("sinsii.save_camera_template", icon='FILE_TICK', text="Save As Template")
+        elif props.camera_template not in ['DEFAULT', 'CUSTOM']:
+            row = box.row()
+            row.operator("sinsii.remove_camera_template", icon='X', text="Remove Template")
+        
+        # Camera Settings
+        box = layout.box()
+        row = box.row()
+        row.prop(props, "show_camera_settings", icon="TRIA_DOWN" if props.show_camera_settings else "TRIA_RIGHT", icon_only=True)
+        row.label(text="Camera Settings", icon='SCENE')
+        
+        if props.show_camera_settings:
+            # Header row with scene numbers and remove buttons
+            row = box.row()
+            row.label(text="")  # Empty cell for property names
+            for i, _ in enumerate(props.cameras):
+                col = row.column()
+                sub_row = col.row(align=True)
+                sub_row.label(text=f"Camera {i+1}")
+                if len(props.cameras) > 1:  # Only show remove button if we have more than one camera
+                    op = sub_row.operator("sinsii.remove_render_scene", text="", icon='X')
+                    op.camera_index = i
+            
+            # Settings rows
+            def add_setting_row(label, prop_name):
+                row = box.row()
+                row.label(text=label)
+                for camera in props.cameras:
+                    col = row.column()
+                    if isinstance(getattr(camera, prop_name), bool):
+                        # Center boolean toggles
+                        split = col.split(factor=0.5)
+                        split.alignment = 'CENTER'
+                        split.prop(camera, prop_name, text="")
+                    else:
+                        col.prop(camera, prop_name, text="")
+            
+
+
+            add_setting_row("Name", "name")
+            add_setting_row("Type", "type")
+            add_setting_row("Clip End", "clip_end")
+            add_setting_row("Focal Length", "focal_length")
+            add_setting_row("Samples", "samples")
+            add_setting_row("Resolution X", "resolution_x")
+            add_setting_row("Resolution Y", "resolution_y")
+            add_setting_row("Distance", "distance")
+            add_setting_row("Horizontal Angle", "horizontal_angle")
+            add_setting_row("Vertical Angle", "vertical_angle")
+            add_setting_row("Extra Zoom", "extra_zoom")
+            add_setting_row("Tilt", "tilt")
+            add_setting_row("Transparent", "transparent")
+            add_setting_row("HDRI Strength", "hdri_strength")
+            add_setting_row("X Offset", "offset_x")
+            add_setting_row("Y Offset", "offset_y")
+            add_setting_row("Z Offset", "offset_z")
+        
+        # Scene Management
+        row = box.row()
+        row.operator("sinsii.add_render_scene", icon='ADD', text="Add Camera")
+
+
+class SINSII_OT_Load_Default_Template(bpy.types.Operator):
+    bl_idname = "sinsii.load_default_template"
+    bl_label = "Load Default Template"
+    bl_description = "Load the default camera configuration template"
+    
+    def execute(self, context):
+        props = context.scene.mesh_properties
+        props.camera_template = 'DEFAULT'  # This will trigger the update function
+        return {'FINISHED'}
+
+
+class SINSII_OT_Add_Render_Scene(bpy.types.Operator):
+    bl_idname = "sinsii.add_render_scene"
+    bl_label = "Add Render Scene"
+    bl_description = "Add a new render scene configuration"
+    
+    def execute(self, context):
+        props = context.scene.mesh_properties
+        new_camera = props.cameras.add()
+        # Copy settings from last camera if it exists
+        if len(props.cameras) > 1:
+            last_camera = props.cameras[-2]
+            for prop in new_camera.bl_rna.properties:
+                if not prop.is_readonly:
+                    setattr(new_camera, prop.identifier, getattr(last_camera, prop.identifier))
+        return {'FINISHED'}
+
+
+class SINSII_OT_Remove_Render_Scene(bpy.types.Operator):
+    bl_idname = "sinsii.remove_render_scene"
+    bl_label = "Remove Render Scene"
+    bl_description = "Remove this render scene configuration"
+    
+    camera_index: bpy.props.IntProperty()
+    
+    def execute(self, context):
+        props = context.scene.mesh_properties
+        if len(props.cameras) > 1:  # Keep at least one camera
+            props.cameras.remove(self.camera_index)
+        return {'FINISHED'}
+
+
+class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
+    bl_label = "Render Top Down Icon"
+    bl_description = "Creates a top-down orthographic render of the selected object in full white with a transparent background"
+    bl_idname = "sinsii.render_top_down"
+    
+    filename_ext = ".png"
+    filter_glob: bpy.props.StringProperty(default="*.png", options={'HIDDEN'})
+    
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT" and get_selected_mesh() is not None
+    
+    def invoke(self, context, event):
+        mesh = get_selected_mesh()
+        if mesh:
+            self.filepath = f"{mesh.name}_main_view_icon.png"
+        return super().invoke(context, event)
+    
+    def execute(self, context):
+        try:
+            mesh = get_selected_mesh()
+            if not mesh:
+                self.report({'ERROR'}, "No mesh selected!")
+                return {'CANCELLED'}
+            
+            render_manager = RenderManager(context, mesh, self.filepath)
+            
+            # Setup everything for icon rendering
+            render_manager.setup_icon_render_settings()
+            render_manager.setup_transparent_world()
+            render_manager.setup_icon_materials()
+            render_manager.setup_top_down_camera(context.scene.mesh_properties.icon_zoom)
+            
+            # Render
+            render_manager.render(self.filepath)
+            
+            # Post-process
+            processor = IconProcessor()
+            if processor.process_icon(self.filepath):
+                self.report({'INFO'}, f"Icon render saved to: {self.filepath}")
+            else:
+                self.report({'WARNING'}, f"Render saved but post-processing failed: {self.filepath}")
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Render failed: {str(e)}")
+            return {'CANCELLED'}
+            
+        finally:
+            if 'render_manager' in locals():
+                render_manager.cleanup()
+                render_manager.cleanup_icon_materials()
+                
+        return {'FINISHED'}
+
+
+class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
+    bl_label = "Render Perspective View"
+    bl_description = "Creates two perspective renders of the model with original materials"
+    bl_idname = "sinsii.render_perspective"
+    
+    filename_ext = ".png"
+    filter_glob: bpy.props.StringProperty(default="*.png", options={'HIDDEN'})
+    
+    def execute(self, context):
+        try:
+            mesh = get_selected_mesh()
+            if not mesh:
+                self.report({'ERROR'}, "No mesh selected!")
+                return {'CANCELLED'}
+                
+            render_manager = RenderManager(context, mesh, self.filepath)
+            render_manager.render_all_scenes(self.filepath)
+            
+            self.report({'INFO'}, f"All scenes rendered successfully")
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Render failed: {str(e)}")
+            return {'CANCELLED'}
+            
+        finally:
+            if 'render_manager' in locals():
+                render_manager.cleanup()
+                
+        return {'FINISHED'}
+
+
+
+class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
+    bl_idname = "sinsii.pick_hdri"
+    bl_label = "Select HDRI"
+    
+    filename_ext = ".hdr;.exr"
+    filter_glob: bpy.props.StringProperty(
+        default="*.hdr;*.exr",
+        options={'HIDDEN'},
+    )
+    
+    def execute(self, context):
+        context.scene.mesh_properties.hdri_path = self.filepath
+        return {'FINISHED'}
+
+
+class SINSII_OT_Save_Camera_Template(bpy.types.Operator):
+    bl_idname = "sinsii.save_camera_template"
+    bl_label = "Save Camera Template"
+    bl_description = "Save current camera configuration as a template"
+    
+    template_name: bpy.props.StringProperty(
+        name="Template Name",
+        description="Name for the new template",
+        default="My Template"
+    )
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+        
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "template_name")
+        
+    def execute(self, context):
+        from .src.lib.template_manager import TemplateManager
+        template_manager = TemplateManager()
+        
+        # Save all current cameras to template
+        template_manager.save_template(
+            self.template_name,
+            context.scene.mesh_properties.cameras
+        )
+        
+        # Force update of template enum
+        context.scene.mesh_properties.property_unset("camera_template")
+        
+        self.report({'INFO'}, f"Saved template: {self.template_name}")
+        return {'FINISHED'}
+
+        
+class SINSII_OT_Remove_Camera_Template(bpy.types.Operator):
+    bl_idname = "sinsii.remove_camera_template"
+    bl_label = "Remove Camera Template"
+    bl_description = "Remove selected camera template"
+    
+    def execute(self, context):
+        from .src.lib.template_manager import TemplateManager
+        template_manager = TemplateManager()
+        
+        props = context.scene.mesh_properties
+        if props.camera_template not in ['DEFAULT', 'CUSTOM']:
+            template_manager.remove_template(props.camera_template)
+            props.camera_template = 'DEFAULT'
+            
+        return {'FINISHED'}
+
+
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Mesh"
     bl_options = {"DEFAULT_CLOSED"}
@@ -139,15 +450,6 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.label(text="Select a mesh...")
         else:
             col.label(text=f"Selected: {mesh.name}")
-            col.operator("sinsii.render_top_down", icon='RENDER_STILL')
-            col.prop(context.scene.mesh_properties, "icon_zoom")
-            col.operator("sinsii.render_perspective", icon='RENDER_STILL')
-            hdri_row = col.row()
-            hdri_row.prop(context.scene.mesh_properties, "hdri_path")
-            col.separator(factor=0.5)
-            hdri_row.operator("sinsii.pick_hdri", icon='FILE_FOLDER')
-            col.prop(context.scene.mesh_properties, "hdri_strength")
-            col.separator(factor=0.5)
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
@@ -567,41 +869,6 @@ def create_empty(mesh, radius, name, location, empty_type):
     empty.rotation_euler = (math.radians(90), 0, 0)
 
 
-def get_bounding_box(mesh):
-
-    def calculate_center(l):
-        return (max(l) + min(l)) / 2 if l else 0
-
-    if mesh:
-        mesh_box = [GAME_MATRIX @ Vector(axis) for axis in mesh.bound_box]
-
-        bounds = [
-            coord for vector in mesh_box for coord in (vector.x, vector.y, vector.z)
-        ]
-
-        bounds_x = bounds[::3]
-        bounds_y = bounds[1::3]
-        bounds_z = bounds[2::3]
-
-        center_x = calculate_center(bounds_x)
-        center_y = calculate_center(bounds_y)
-        center_z = calculate_center(bounds_z)
-
-        center = [center_x, center_y, -center_z]
-
-        extents = [
-            ((max(bounds_x) - min(bounds_x)) / 2),
-            ((max(bounds_y) - min(bounds_y)) / 2),
-            ((max(bounds_z) - min(bounds_z)) / 2),
-        ]
-
-        bounding_sphere_radius = max(
-            (p - Vector([center_x, center_y, center_z])).length for p in mesh_box
-        )
-
-        return bounding_sphere_radius, extents, center
-
-
 def get_active_material():
     mesh = get_selected_mesh()
     if mesh and mesh.active_material:
@@ -1003,75 +1270,6 @@ def join_meshes(meshes):
     if len(meshes) > 1:
         bpy.ops.object.join()
     return bpy.context.view_layer.objects.active
-
-
-def post_process_icon(image_path):
-    """Convert render to icon using Blender's built-in image processing"""
-    try:
-        # Load the rendered image
-        img = bpy.data.images.load(image_path, check_existing=True)
-        if img is None:
-            return False
-            
-        # Get image pixels
-        pixels = list(img.pixels[:])
-        width = img.size[0]
-        height = img.size[1]
-        
-        # Create new image with smaller dimensions
-        new_width = 200
-        new_height = 200
-        result = bpy.data.images.new(
-            name="processed_icon",
-            width=new_width,
-            height=new_height,
-            alpha=True
-        )
-        
-        # Convert pixels to 2D array with alpha information
-        pixel_array = []
-        for y in range(height):
-            row = []
-            for x in range(width):
-                idx = (y * width + x) * 4
-                alpha = pixels[idx + 3] > 0.5  # Use alpha threshold
-                row.append(alpha)
-            pixel_array.append(row)
-        
-        # Process pixels
-        new_pixels = []
-        scale_x = width / new_width
-        scale_y = height / new_height
-        
-        # Create solid white silhouette of the model
-        for y in range(new_height):
-            for x in range(new_width):
-                orig_x = int(x * scale_x)
-                orig_y = int(y * scale_y)
-                is_model = pixel_array[orig_y][orig_x]
-                
-                if is_model:
-                    # Inside model - pure white
-                    new_pixels.extend([1.0, 1.0, 1.0, 1.0])
-                else:
-                    # Transparent
-                    new_pixels.extend([0.0, 0.0, 0.0, 0.0])
-        
-        # Apply new pixels
-        result.pixels = new_pixels
-        
-        # Save result
-        result.save_render(image_path)
-        
-        # Clean up
-        bpy.data.images.remove(img)
-        bpy.data.images.remove(result)
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error in post-processing: {str(e)}")
-        return False
 
 
 def export_mesh(self, mesh_name, export_dir):
@@ -1485,7 +1683,7 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    # Removing this fixed an issue loading the materials from the dds files. Idk why this was here.
+    # Removing this fixed an issue loading the materials from the dds files. Idk for sure what it was for.
     # Set emissive strength to 100?
     # principled_node.inputs[27].default_value = 100
 
@@ -1493,7 +1691,7 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     # I don't think this is needed. Unless there's emissive lighting in the game I'm not accounting for.
     # That would need a texture file probably.
     # principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-    # principled_node.inputs["Emission Strength"].default_value = 0.0
+    # principled_node.inputs["Emission Strength"].default_value = 0.0 or 100
 
     links = material.node_tree.links
     links.new(_clr.outputs["Color"], mix_node_team_color.inputs["A"])
@@ -1545,363 +1743,13 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
 
 
 
-class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
-    bl_label = "Render Top Down Icon"
-    bl_description = "Creates a top-down orthographic render of the selected object in full white with a transparent background"
-    bl_idname = "sinsii.render_top_down"
-    
-    # Add file selector properties
-    filename_ext = ".png"
-    filter_glob: bpy.props.StringProperty(
-        default="*.png",
-        options={'HIDDEN'},
-    )
-    
-    @classmethod
-    def poll(cls, context):
-        try:
-            is_valid = context.mode == "OBJECT" and get_selected_mesh() is not None
-            return is_valid
-        except Exception as e:
-            print(f"Error in poll: {str(e)}")
-            return False
-    
-    def invoke(self, context, event):
-        # Set default filename using mesh name and naming convention
-        mesh = get_selected_mesh()
-        if mesh:
-            self.filepath = f"{mesh.name}_main_view_icon.png"
-        return super().invoke(context, event)
-    
-    def execute(self, context):
-        print("\nStarting top-down render...")
-        
-        # Store original settings
-        original_camera = context.scene.camera
-        original_engine = context.scene.render.engine
-        original_samples = context.scene.cycles.samples
-        original_film_exposure = context.scene.view_settings.exposure
-        original_background = context.scene.world.node_tree.nodes["Background"].inputs[0].default_value
-        original_film_transparent = context.scene.render.film_transparent
-        
-        try:
-            mesh = get_selected_mesh()
-            if not mesh:
-                self.report({'ERROR'}, "No mesh selected!")
-                return {'CANCELLED'}
-                
-            # Create camera
-            cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
-            cam_data.type = 'ORTHO'
-            
-            # Calculate bounding box
-            try:
-                bounding_sphere_radius, center_x, center_y = get_bounding_box(mesh)
-                if not bounding_sphere_radius or bounding_sphere_radius <= 0:
-                    raise ValueError("Invalid bounding sphere radius")
-            except Exception as e:
-                self.report({'ERROR'}, f"Failed to calculate mesh bounds: {str(e)}")
-                return {'CANCELLED'}
-            
-            # Setup camera
-            cam_obj = bpy.data.objects.new('Top_Down_Camera', cam_data)
-            context.scene.collection.objects.link(cam_obj)
-            cam_obj.location = (
-                mesh.location.x,
-                mesh.location.y,
-                mesh.location.z + bounding_sphere_radius * 2
-            )
-            cam_obj.rotation_euler = (0, 0, math.radians(-90))
-            cam_data.ortho_scale = bounding_sphere_radius * context.scene.mesh_properties.icon_zoom
-            context.scene.camera = cam_obj
-            
-            # Setup render settings for icon-style output
-            context.scene.render.engine = 'CYCLES'
-            context.scene.cycles.samples = 64
-            context.scene.render.resolution_x = 200
-            context.scene.render.resolution_y = 200
-            context.scene.render.film_transparent = True
-            
-            # Add these new settings for pure white output
-            context.scene.view_settings.view_transform = 'Standard'
-            context.scene.view_settings.look = 'None'
-            context.scene.view_settings.exposure = 0
-            context.scene.view_settings.gamma = 1.0
-            context.scene.render.filter_size = 1.5  # Sharper pixels
-            
-            context.scene.render.image_settings.file_format = 'PNG'
-            context.scene.render.image_settings.color_mode = 'RGBA'
-            context.scene.render.image_settings.color_depth = '8'
-            
-            # Set world background to transparent
-            context.scene.world.use_nodes = True
-            context.scene.world.node_tree.nodes["Background"].inputs[0].default_value = (0, 0, 0, 0)
-            
-            # Setup materials for icon style
-            original_materials = {}
-            for obj in context.scene.objects:
-                if obj.type == 'MESH':
-                    # Store original materials
-                    original_materials[obj] = obj.active_material
-                    
-                    # Create new material for icon rendering
-                    icon_mat = bpy.data.materials.new(name="Icon_Material")
-                    icon_mat.use_nodes = True
-                    nodes = icon_mat.node_tree.nodes
-                    links = icon_mat.node_tree.links
-                    
-                    # Clear default nodes
-                    nodes.clear()
-                    
-                    # Create nodes
-                    output = nodes.new(type='ShaderNodeOutputMaterial')
-                    emission = nodes.new(type='ShaderNodeEmission')
-                    transparent = nodes.new(type='ShaderNodeBsdfTransparent')
-                    mix_shader = nodes.new(type='ShaderNodeMixShader')
-                    
-                    # Position nodes
-                    output.location = (300, 0)
-                    mix_shader.location = (100, 0)
-                    emission.location = (-100, -100)
-                    transparent.location = (-100, 100)
-                    
-                    # Setup emission for solid silhouette
-                    emission.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)  # Pure white
-                    emission.inputs[1].default_value = 1.0  # Emission strength
-                    
-                    # Setup connections
-                    links.new(transparent.outputs[0], mix_shader.inputs[1])
-                    links.new(emission.outputs[0], mix_shader.inputs[2])
-                    links.new(mix_shader.outputs[0], output.inputs[0])
-                    
-                    # Assign material
-                    obj.active_material = icon_mat
-            
-            # Setup output path using the file selector path
-            context.scene.render.filepath = self.filepath
-            
-            # Perform render
-            bpy.ops.render.render(write_still=True)
-            
-            # Post-process the render
-            if post_process_icon(self.filepath):
-                self.report({'INFO'}, f"Icon render saved to: {self.filepath}")
-            else:
-                self.report({'WARNING'}, f"Render saved but post-processing failed: {self.filepath}")
-            
-        except Exception as e:
-            print(f"ERROR during render: {str(e)}")
-            print(f"Error type: {type(e)}")
-            import traceback
-            print(f"Traceback:\n{traceback.format_exc()}")
-            self.report({'ERROR'}, f"Render failed: {str(e)}")
-            return {'CANCELLED'}
-            
-        finally:
-            # Restore original settings
-            context.scene.camera = original_camera
-            context.scene.render.engine = original_engine
-            context.scene.cycles.samples = original_samples
-            context.scene.view_settings.exposure = original_film_exposure
-            context.scene.world.node_tree.nodes["Background"].inputs[0].default_value = original_background
-            context.scene.render.film_transparent = original_film_transparent
-            
-            # Restore original materials
-            for obj, material in original_materials.items():
-                obj.active_material = material
-            
-            # Clean up temporary materials
-            for material in bpy.data.materials:
-                if material.name.startswith("Icon_Material"):
-                    bpy.data.materials.remove(material)
-            
-            # Clean up temporary camera
-            if 'cam_obj' in locals():
-                bpy.data.objects.remove(cam_obj, do_unlink=True)
-            if 'cam_data' in locals():
-                bpy.data.cameras.remove(cam_data, do_unlink=True)
-        
-        return {'FINISHED'}
 
 
-class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
-    bl_label = "Render Perspective View"
-    bl_description = "Creates two perspective renders of the model with original materials"
-    bl_idname = "sinsii.render_perspective"
-    
-    filename_ext = ".png"
-    filter_glob: bpy.props.StringProperty(
-        default="*.png",
-        options={'HIDDEN'},
-    )
-    
-    @classmethod
-    def poll(cls, context):
-        return context.mode == "OBJECT" and get_selected_mesh() is not None
-    
-    def invoke(self, context, event):
-        mesh = get_selected_mesh()
-        if mesh:
-            # Set initial filepath for first render
-            self.filepath = f"{mesh.name}_tooltip_picture200.png"
-        return super().invoke(context, event)
-    
-    def execute(self, context):
-        print("\nStarting perspective render...")
-        
-        # Store original settings
-        original_camera = context.scene.camera
-        original_engine = context.scene.render.engine
-        original_samples = context.scene.cycles.samples
-        original_film_exposure = context.scene.view_settings.exposure
-        original_world = save_world_lighting(context)  # Save world lighting
-        
-        try:
-            mesh = get_selected_mesh()
-            if not mesh:
-                self.report({'ERROR'}, "No mesh selected!")
-                return {'CANCELLED'}
-            
-            # Calculate camera position based on bounding box
-            bounding_sphere_radius, _, center = get_bounding_box(mesh)
-            if not bounding_sphere_radius or bounding_sphere_radius <= 0:
-                raise ValueError("Invalid bounding sphere radius")
-            
-            # Create camera
-            cam_data = bpy.data.cameras.new(name='Perspective_Camera')
-            cam_data.type = 'PERSP'
-            cam_data.lens = 50  # 50mm focal length
-            cam_data.clip_end = 1000000
-            
-            # Position camera diagonally from the model
-            distance = bounding_sphere_radius * context.scene.mesh_properties.icon_zoom
-            cam_obj = bpy.data.objects.new('Perspective_Camera', cam_data)
-            context.scene.collection.objects.link(cam_obj)
-            
-            # Position camera at 45 degree angles
-            cam_obj.location = (
-                center[0] + distance * math.cos(math.radians(45)),
-                center[1] - distance * math.cos(math.radians(45)),
-                center[2] + distance * math.sin(math.radians(45))
-            )
-            
-            # Point camera at model center
-            direction = Vector(center) - cam_obj.location
-            rot_quat = direction.to_track_quat('-Z', 'Y')
-            cam_obj.rotation_euler = rot_quat.to_euler()
-            
-            context.scene.camera = cam_obj
-            
-            # Setup render settings
-            context.scene.render.engine = 'CYCLES'
-            context.scene.cycles.samples = 128
-            context.scene.render.resolution_x = 1920
-            context.scene.render.resolution_y = 1080
-            context.scene.render.film_transparent = False
-            
-            # Setup world HDRI
-            if context.scene.mesh_properties.hdri_path:
-                context.scene.world.use_nodes = True
-                nodes = context.scene.world.node_tree.nodes
-                links = context.scene.world.node_tree.links
-                
-                # Clear existing nodes
-                nodes.clear()
-                
-                # Create nodes
-                background = nodes.new('ShaderNodeBackground')
-                env_tex = nodes.new('ShaderNodeTexEnvironment')
-                output = nodes.new('ShaderNodeOutputWorld')
-                
-                # Load HDRI
-                env_tex.image = bpy.data.images.load(context.scene.mesh_properties.hdri_path)
-                
-                # Connect nodes
-                links.new(env_tex.outputs['Color'], background.inputs['Color'])
-                links.new(background.outputs['Background'], output.inputs['Surface'])
-                
-                # Position nodes
-                output.location = (300, 0)
-                background.location = (0, 0)
-                env_tex.location = (-300, 0)
-            
-            # Setup output path for first render
-            first_render_path = self.filepath
-            context.scene.render.filepath = first_render_path
-            
-            # Perform 1st render with transparency
-            context.scene.render.film_transparent = True
-            bpy.ops.render.render(write_still=True)
-
-            # Move and rotate the camera and perform 2nd render without transparency
-            cam_obj.location = (
-                center[0] - distance * math.cos(math.radians(30)),
-                center[1] - distance * math.cos(math.radians(30)),
-                center[2] + distance * math.sin(math.radians(30))
-            )
-            direction = Vector(center) - cam_obj.location
-            rot_quat = direction.to_track_quat('-Z', 'Y')
-            cam_obj.rotation_euler = rot_quat.to_euler()
-            
-            # Setup output path for second render
-            second_render_path = os.path.join(os.path.dirname(first_render_path), f"{mesh.name}_hud_picture200.png")
-            context.scene.render.filepath = second_render_path
-            context.scene.render.film_transparent = False
-            bpy.ops.render.render(write_still=True)
-            
-            self.report({'INFO'}, f"Perspective renders saved to:\n{first_render_path}\n{second_render_path}")
-            
-        except Exception as e:
-            print(f"ERROR during render: {str(e)}")
-            import traceback
-            print(f"Traceback:\n{traceback.format_exc()}")
-            self.report({'ERROR'}, f"Render failed: {str(e)}")
-            return {'CANCELLED'}
-            
-        finally:
-            # Restore original settings
-            context.scene.camera = original_camera
-            context.scene.render.engine = original_engine
-            context.scene.cycles.samples = original_samples
-            context.scene.view_settings.exposure = original_film_exposure
-            # restore_world_lighting(context, original_world)  # Restore world lighting
-            
-            # Clean up temporary camera
-            if 'cam_obj' in locals():
-                bpy.data.objects.remove(cam_obj, do_unlink=True)
-            if 'cam_data' in locals():
-                bpy.data.cameras.remove(cam_data, do_unlink=True)
-        
-        return {'FINISHED'}
 
 
-def save_world_lighting(context):
-    """Save the current world lighting settings"""
-    if context.scene.world:
-        # Create a copy of the current world
-        saved_world = context.scene.world.copy()
-        return saved_world
-    return None
-
-def restore_world_lighting(context, saved_world):
-    """Restore previously saved world lighting settings"""
-    if saved_world:
-        context.scene.world = saved_world
 
 
-class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
-    bl_idname = "sinsii.pick_hdri"
-    bl_label = "Select HDRI"
-    
-    filename_ext = ".hdr;.exr"
-    filter_glob: bpy.props.StringProperty(
-        default="*.hdr;*.exr",
-        options={'HIDDEN'},
-    )
-    
-    def execute(self, context):
-        context.scene.mesh_properties.hdri_path = self.filepath
-        return {'FINISHED'}
+
 
 classes = (
     SINSII_OT_Import_Mesh,
@@ -1914,6 +1762,15 @@ classes = (
     SINSII_OT_Spawn_Shield_Mesh,
     SINSII_OT_Export_Spatial_Information,
     SINSII_PT_Panel,
+    SINSII_OT_Pick_HDRI,
+    SINSII_OT_Render_Perspective,
+    SINSII_OT_Render_Top_Down,
+    SINSII_OT_Add_Render_Scene,
+    SINSII_OT_Remove_Render_Scene,
+    SINSII_OT_Save_Camera_Template,
+    SINSII_OT_Remove_Camera_Template,
+    SINSII_OT_Load_Default_Template,
+    SINSII_PT_Render_Panel,
     SINSII_OT_Format_Meshpoints,
     SINSII_PT_Mesh_Point_Panel,
     SINSII_PT_Mesh_Panel,
@@ -1922,10 +1779,8 @@ classes = (
     SINSII_PT_Meshpoint_Miscellaneous,
     SINSII_PT_Meshpoint_Turret,
     SINSII_PT_Meshpoint,
-    SINSII_OT_Render_Top_Down,
-    SINSII_OT_Render_Perspective,
-    SINSII_OT_Pick_HDRI,
 )
+
 
 
 def register():
