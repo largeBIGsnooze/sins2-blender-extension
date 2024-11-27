@@ -145,16 +145,22 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
         box.label(text="Render", icon='RENDER_STILL')
         row = box.row()
         selected_mesh = get_selected_mesh()
-        if selected_mesh:
+        if selected_mesh and selected_mesh.type == 'MESH' and selected_mesh.data.vertices:
             row.operator("sinsii.render_perspective", text="Render Scene")
             row.operator("sinsii.render_top_down", text="Render Icon")
         else:
-            row.label(text="No mesh selected!", icon='ERROR')
+            row.label(text="No valid mesh selected!", icon='ERROR')
         
-        # Icon Settings
+        # Template Selection
         box = layout.box()
-        box.label(text="Icon Settings", icon='IMAGE_DATA')
-        box.prop(props, "icon_zoom", text="Icon Zoom")
+        box.label(text="Camera Templates", icon='CAMERA_DATA')
+        # Check if we have any cameras set up
+        if len(props.cameras) == 0:
+            row = box.row()
+            row.operator("sinsii.load_default_template", icon='FILE_TICK', text="Load Default Template")
+        else:
+            row = box.row()
+            row.prop(props, "camera_template", text="")
         
         # HDRI Settings
         box = layout.box()
@@ -163,17 +169,11 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
         row.prop(props, "hdri_path", text="")
         row.operator("sinsii.pick_hdri", icon='FILE_FOLDER', text="")
         
-        # Template Selection
+        # Icon Settings
         box = layout.box()
-        box.label(text="Camera Templates", icon='CAMERA_DATA')
+        box.label(text="Icon Settings", icon='IMAGE_DATA')
+        box.prop(props, "icon_zoom", text="Icon Zoom")
         
-        # Check if we have any cameras set up
-        if len(props.cameras) == 0:
-            row = box.row()
-            row.operator("sinsii.load_default_template", icon='FILE_TICK', text="Load Default Template")
-        else:
-            row = box.row()
-            row.prop(props, "camera_template", text="")
 
         
         # Template Management
@@ -228,7 +228,6 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
             add_setting_row("Distance", "distance")
             add_setting_row("H Angle", "horizontal_angle")
             add_setting_row("V Angle", "vertical_angle")
-            add_setting_row("Extra Zoom", "extra_zoom")
             add_setting_row("Tilt", "tilt")
             add_setting_row("Transparent", "transparent")
             add_setting_row("HDRI Str", "hdri_strength")
@@ -237,6 +236,14 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
             add_setting_row("Z Offset", "offset_z")
             add_setting_row("Lighting", "lighting_enabled")
             add_setting_row("Light Dis", "lighting_distance")
+            add_setting_row("Light Size", "light_size_multiplier")
+            add_setting_row("Key Light", "key_light_energy")
+            add_setting_row("Fill Light", "fill_light_energy")
+            add_setting_row("Back Light", "back_light_energy")
+            add_setting_row("Sun", "sun_enabled")
+            add_setting_row("Sun Energy", "sun_energy")
+            add_setting_row("Sun H", "sun_angle_h")
+            add_setting_row("Sun V", "sun_angle_v")
         
         # Scene Management
         row = box.row()
@@ -322,15 +329,15 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
             render_manager.setup_icon_materials()
             render_manager.setup_top_down_camera(context.scene.mesh_properties.icon_zoom)
             
-            # Render
-            render_manager.render(self.filepath)
+            # Render and get the unique path
+            unique_filepath = render_manager.render(self.filepath)
             
-            # Post-process
+            # Post-process using the unique filepath
             processor = IconProcessor()
-            if processor.process_icon(self.filepath):
-                self.report({'INFO'}, f"Icon render saved to: {self.filepath}")
+            if processor.process_icon(unique_filepath):
+                self.report({'INFO'}, f"Icon render saved to: {unique_filepath}")
             else:
-                self.report({'WARNING'}, f"Render saved but post-processing failed: {self.filepath}")
+                self.report({'WARNING'}, f"Render saved but post-processing failed: {unique_filepath}")
             
         except Exception as e:
             self.report({'ERROR'}, f"Render failed: {str(e)}")
@@ -346,7 +353,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
 
 class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
     bl_label = "Render Perspective View"
-    bl_description = "Creates two perspective renders of the model with original materials"
+    bl_description = "Creates perspective renders of the model with original materials"
     bl_idname = "sinsii.render_perspective"
     
     filename_ext = ""
@@ -421,7 +428,7 @@ class SINSII_OT_Save_Camera_Template(bpy.types.Operator):
         # Save all current cameras to template
         template_manager.save_template(
             self.template_name,
-            context.scene.mesh_properties.cameras
+            context.scene.mesh_properties
         )
         
         # Force update of template enum
@@ -1693,14 +1700,6 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     normal_map_node = nodes.new(type="ShaderNodeNormalMap")
     set_node_position(normal_map_node, 12, 10)
 
-    # Removing this fixed an issue loading the materials from the dds files. Idk for sure what it was for.
-    # Set emissive strength to 100?
-    # principled_node.inputs[27].default_value = 100
-
-    # What could be used instead if needed? Set emissive color to white and strength to 0 (blender default).
-    # I don't think this is needed. Unless there's emissive lighting in the game I'm not accounting for.
-    # That would need a texture file probably.
-    # principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
     principled_node.inputs["Emission Strength"].default_value = 100
 
     links = material.node_tree.links
@@ -1748,18 +1747,10 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     links.new(mapping_node.outputs["Vector"], _msk.inputs["Vector"])
     links.new(mapping_node.outputs["Vector"], _orm.inputs["Vector"])
     links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
+    links.new(separate_color_node_2.outputs["Blue"], color_ramp_4.inputs["Fac"])
+    links.new(color_ramp_4.outputs["Color"], principled_node.inputs["Emission Color"])
 
     return material
-
-
-
-
-
-
-
-
-
-
 
 
 classes = (
@@ -1791,7 +1782,6 @@ classes = (
     SINSII_PT_Meshpoint_Turret,
     SINSII_PT_Meshpoint,
 )
-
 
 
 def register():

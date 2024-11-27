@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 DEFAULT_TEMPLATE = {
     "global_settings": {
         "icon_zoom": 3.45,
-        "hdri_path": "C:/Users/Noah/Downloads/Free space HDRI pack 4k/Nebula 4 4k.hdr",
+        "hdri_path": "",
     },
     "cameras": [
         {
@@ -15,18 +15,25 @@ DEFAULT_TEMPLATE = {
             "samples": 32,
             "resolution_x": 918,
             "resolution_y": 432,
-            "distance": 400,
+            "distance": 415,
             "horizontal_angle": -45,
-            "vertical_angle": 45,
-            "extra_zoom": 1.0,
+            "vertical_angle": 35,
             "tilt": -0.03,
             "transparent": "TRANSPARENT",
-            "hdri_strength": 5.0,
+            "hdri_strength": 150.0,
             "offset_x": 0,
             "offset_y": 0,
             "offset_z": 0,
             "lighting_enabled": "ENABLED",
             "lighting_distance": 1.5,
+            "light_size_multiplier": 1.0,
+            "key_light_energy": 1000000.0,
+            "fill_light_energy": 500000.0,
+            "back_light_energy": 750000.0,
+            "sun_enabled": "ENABLED",
+            "sun_energy": 50.0,
+            "sun_angle_h": 45.0,
+            "sun_angle_v": 45.0,
         },
         {
             "filename_suffix": "hud_picture",
@@ -39,18 +46,31 @@ DEFAULT_TEMPLATE = {
             "distance": 4,
             "horizontal_angle": 60,
             "vertical_angle": 20,
-            "extra_zoom": 1.0,
             "tilt": -3,
             "transparent": "SOLID",
-            "hdri_strength": 4.0,
+            "hdri_strength": 100.0,
             "offset_x": 0,
             "offset_y": 0,
             "offset_z": 0,
             "lighting_enabled": "ENABLED",
             "lighting_distance": 3,
+            "light_size_multiplier": 1.0,
+            "key_light_energy": 1000000.0,
+            "fill_light_energy": 500000.0,
+            "back_light_energy": 750000.0,
+            "sun_enabled": "ENABLED",
+            "sun_energy": 50.0,
+            "sun_angle_h": 45.0,
+            "sun_angle_v": 45.0,
         }
     ]
 }
+
+def camera_property_update(self, context):
+    """Update callback for camera properties to set template to custom"""
+    if hasattr(context.scene, 'mesh_properties'):
+        if not context.scene.mesh_properties.is_loading_template:
+            context.scene.mesh_properties.camera_template = 'CUSTOM'
 
 def meshpoint_name(self, context):
     if self.meshpoint_name != context.scene.mesh_properties.meshpoint_type:
@@ -62,18 +82,19 @@ def meshpoint_type(self, context):
         context.scene.mesh_properties.meshpoint_name = (
             context.scene.mesh_properties.meshpoint_type
         )
-
 class CameraProperties(bpy.types.PropertyGroup):
     filename_suffix: bpy.props.StringProperty(
         name="Filename Suffix",
         description="Filename suffix for the rendered image",
         default="New View",
+        update=camera_property_update
     )
     
     type: bpy.props.EnumProperty(
         items=[("PERSP", "Perspective", ""), ("ORTHO", "Orthographic", "")],
         name="Camera Type",
         default="PERSP",
+        update=camera_property_update
     )
     
     clip_end: bpy.props.FloatProperty(
@@ -81,6 +102,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         description="Clip end of the camera",
         default=100000,
         min=0.1,
+        update=camera_property_update
     )
     
     focal_length: bpy.props.FloatProperty(
@@ -88,6 +110,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         description="Focal length for perspective cameras, or orthographic scale for ortho cameras",
         default=50,
         min=0.1,
+        update=camera_property_update
     )
 
     samples: bpy.props.IntProperty(
@@ -95,6 +118,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         description="Render samples",
         default=32,
         min=1,
+        update=camera_property_update
     )
 
     resolution_x: bpy.props.IntProperty(
@@ -102,6 +126,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         description="Resolution X",
         default=1920,
         min=1,
+        update=camera_property_update
     )
 
     resolution_y: bpy.props.IntProperty(
@@ -109,6 +134,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         description="Resolution Y",
         default=1080,
         min=1,
+        update=camera_property_update
     )
 
     distance: bpy.props.FloatProperty(
@@ -116,31 +142,28 @@ class CameraProperties(bpy.types.PropertyGroup):
         description="Distance from the model center",
         default=10.0,
         min=0.1,
+        update=camera_property_update
     )
     
     horizontal_angle: bpy.props.FloatProperty(
         name="H Angle",
         description="Camera horizontal angle away from the center",
-        default=45.0
+        default=45.0,
+        update=camera_property_update
     )
     
     vertical_angle: bpy.props.FloatProperty(
         name="V Angle",
         description="Camera vertical angle away from the center",
-        default=30.0
-    )
-
-    extra_zoom: bpy.props.FloatProperty(
-        name="Extra Zoom",
-        description="Additional zoom factor",
-        default=1.0,
-        min=0.1,
+        default=30.0,
+        update=camera_property_update
     )
 
     tilt: bpy.props.FloatProperty(
         name="Tilt",
         description="Camera tilt in degrees",
         default=0,
+        update=camera_property_update
     )
 
     transparent: bpy.props.EnumProperty(
@@ -150,42 +173,39 @@ class CameraProperties(bpy.types.PropertyGroup):
             ("TRANSPARENT", "Transparent", "Render with transparent background"),
             ("SOLID", "Solid", "Render with solid background")
         ],
-        default="TRANSPARENT"
+        default="SOLID",
+        update=camera_property_update
     )
 
     hdri_strength: bpy.props.FloatProperty(
         name="HDRi Str",
         description="Strength of the HDRi",
-        default=1.0,
+        default=100.0,
         min=0.0,
+        update=camera_property_update
     )
 
     offset_x: bpy.props.FloatProperty(
         name="X Offset",
         description="Camera X offset",
         default=0.0,
+        update=camera_property_update
     )
     
     offset_y: bpy.props.FloatProperty(
         name="Y Offset",
         description="Camera Y offset",
         default=0.0,
+        update=camera_property_update
     )
     
     offset_z: bpy.props.FloatProperty(
         name="Z Offset",
         description="Camera Z offset",
         default=0.0,
+        update=camera_property_update
     )
-
-    lighting_distance: bpy.props.FloatProperty(
-        name="Lighting Distance",
-        description="Distance multiplier for 3-point lighting setup",
-        default=1.5,
-        min=0.1,
-        max=10.0
-    )
-
+    
     lighting_enabled: bpy.props.EnumProperty(
         name="Enable 3-Point Lighting",
         description="Enable 3-point lighting setup",
@@ -193,7 +213,83 @@ class CameraProperties(bpy.types.PropertyGroup):
             ("ENABLED", "Enabled", "Enable 3-point lighting setup"),
             ("DISABLED", "Disabled", "Disable 3-point lighting setup")
         ],
-        default="DISABLED"
+        default="DISABLED",
+        update=camera_property_update
+    )
+
+    lighting_distance: bpy.props.FloatProperty(
+        name="Lighting Distance",
+        description="Distance multiplier for 3-point lighting setup",
+        default=1.5,
+        min=0.1,
+        max=10.0,
+        update=camera_property_update
+    )
+
+    key_light_energy: bpy.props.FloatProperty(
+        name="Key Light Energy",
+        description="Energy of the main (key) light",
+        default=10000.0,
+        min=0.0,
+        update=camera_property_update
+    )
+    
+    fill_light_energy: bpy.props.FloatProperty(
+        name="Fill Light Energy",
+        description="Energy of the fill light",
+        default=5000.0,
+        min=0.0,
+        update=camera_property_update
+    )
+    
+    back_light_energy: bpy.props.FloatProperty(
+        name="Back Light Energy",
+        description="Energy of the back (rim) light",
+        default=7500.0,
+        min=0.0,
+        update=camera_property_update
+    )
+    
+    light_size_multiplier: bpy.props.FloatProperty(
+        name="Light Size",
+        description="Size multiplier for all lights relative to bounding sphere radius",
+        default=1.0,
+        min=0.1,
+        max=10.0,
+        update=camera_property_update
+    )
+
+    sun_enabled: bpy.props.EnumProperty(
+        name="Enable Sun",
+        description="Enable sun lighting",
+        items=[
+            ("ENABLED", "Enabled", "Enable sun lighting"),
+            ("DISABLED", "Disabled", "Disable sun lighting")
+        ],
+        default="ENABLED",
+        update=camera_property_update
+    )
+    
+    sun_energy: bpy.props.FloatProperty(
+        name="Sun Energy",
+        description="Energy of the sun light",
+        default=5000.0,
+        min=0.0,
+        update=camera_property_update
+    )
+    
+    sun_angle_h: bpy.props.FloatProperty(
+        name="Sun H Angle",
+        description="Sun horizontal angle",
+        default=45.0,
+        update=camera_property_update
+    )
+    
+    sun_angle_v: bpy.props.FloatProperty(
+        name="Sun V Angle",
+        description="Sun vertical angle",
+        default=45.0,
+        update=camera_property_update
     )
 
 class CameraTemplate(bpy.types.PropertyGroup):
@@ -239,6 +335,7 @@ class Properties(bpy.types.PropertyGroup):
         
     def load_camera_template(self, context):
         props = context.scene.mesh_properties
+        self.is_loading_template = True
         
         if self.camera_template == 'DEFAULT':
             # Load default template
@@ -325,20 +422,18 @@ class Properties(bpy.types.PropertyGroup):
         min=0.01,
         max=10.0,
         step=0.01,
+        update=camera_property_update
     )
 
     hdri_path: bpy.props.StringProperty(
         name="HDRi Path",
         description="Path to the HDRi file",
         default="",
+        update=camera_property_update
     )
 
-    hdri_strength: bpy.props.FloatProperty(
-        name="HDRi Strength",
-        description="Strength of the HDRi",
-        default=1.0,
-        min=0.0,
-    )
+    # Add flag to track template loading
+    is_loading_template: bpy.props.BoolProperty(default=False)
 
 def register():
     bpy.utils.register_class(CameraProperties)
