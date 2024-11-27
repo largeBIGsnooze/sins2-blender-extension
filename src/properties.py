@@ -4,27 +4,29 @@ from typing import List, Dict, Any
 DEFAULT_TEMPLATE = {
     "global_settings": {
         "icon_zoom": 3.45,
-        "hdri_path": "C:/Users/Noah/Downloads/rogland_clear_night_4k.exr",
+        "hdri_path": "C:/Users/Noah/Downloads/Free space HDRI pack 4k/Nebula 4 4k.hdr",
     },
     "cameras": [
         {
             "filename_suffix": "tooltip_picture",
             "type": 'PERSP',
-            "clip_end": 100000,
-            "focal_length": 50,
+            "clip_end": 1000000,
+            "focal_length": 6400,
             "samples": 32,
             "resolution_x": 918,
             "resolution_y": 432,
-            "distance": 4,
+            "distance": 400,
             "horizontal_angle": -45,
             "vertical_angle": 45,
             "extra_zoom": 1.0,
-            "tilt": -3,
+            "tilt": -0.03,
             "transparent": "TRANSPARENT",
             "hdri_strength": 5.0,
             "offset_x": 0,
             "offset_y": 0,
             "offset_z": 0,
+            "lighting_enabled": "ENABLED",
+            "lighting_distance": 1.5,
         },
         {
             "filename_suffix": "hud_picture",
@@ -44,6 +46,8 @@ DEFAULT_TEMPLATE = {
             "offset_x": 0,
             "offset_y": 0,
             "offset_z": 0,
+            "lighting_enabled": "ENABLED",
+            "lighting_distance": 3,
         }
     ]
 }
@@ -172,6 +176,24 @@ class CameraProperties(bpy.types.PropertyGroup):
         name="Z Offset",
         description="Camera Z offset",
         default=0.0,
+    )
+
+    lighting_distance: bpy.props.FloatProperty(
+        name="Lighting Distance",
+        description="Distance multiplier for 3-point lighting setup",
+        default=1.5,
+        min=0.1,
+        max=10.0
+    )
+
+    lighting_enabled: bpy.props.EnumProperty(
+        name="Enable 3-Point Lighting",
+        description="Enable 3-point lighting setup",
+        items=[
+            ("ENABLED", "Enabled", "Enable 3-point lighting setup"),
+            ("DISABLED", "Disabled", "Disable 3-point lighting setup")
+        ],
+        default="DISABLED"
     )
 
 class CameraTemplate(bpy.types.PropertyGroup):

@@ -235,6 +235,8 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
             add_setting_row("X Offset", "offset_x")
             add_setting_row("Y Offset", "offset_y")
             add_setting_row("Z Offset", "offset_z")
+            add_setting_row("Lighting", "lighting_enabled")
+            add_setting_row("Light Dis", "lighting_distance")
         
         # Scene Management
         row = box.row()
@@ -1699,7 +1701,7 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     # I don't think this is needed. Unless there's emissive lighting in the game I'm not accounting for.
     # That would need a texture file probably.
     # principled_node.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-    # principled_node.inputs["Emission Strength"].default_value = 0.0 or 100
+    principled_node.inputs["Emission Strength"].default_value = 100
 
     links = material.node_tree.links
     links.new(_clr.outputs["Color"], mix_node_team_color.inputs["A"])

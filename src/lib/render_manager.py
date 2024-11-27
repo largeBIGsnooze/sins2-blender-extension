@@ -295,6 +295,64 @@ class RenderManager:
         # Set as active camera
         self.context.scene.camera = self.cam_obj
         
+    def setup_three_point_lighting(self, camera_settings):
+        """Setup 3-point lighting for perspective renders"""
+        bounding_sphere_radius, _, _, center = get_bounding_box(self.mesh)
+        if not bounding_sphere_radius or bounding_sphere_radius <= 0:
+            raise ValueError("Invalid bounding sphere radius")
+        
+        distance = bounding_sphere_radius * camera_settings.lighting_distance
+        
+        # Store original lights to restore later
+        self.original_lights = []
+        for obj in self.context.scene.objects:
+            if obj.type == 'LIGHT':
+                self.original_lights.append(obj)
+        
+        # Create key light (main light)
+        key_light = bpy.data.lights.new(name="Key_Light", type='AREA')
+        key_light.energy = 1000
+        key_light.size = bounding_sphere_radius
+        key_obj = bpy.data.objects.new("Key_Light", key_light)
+        self.context.scene.collection.objects.link(key_obj)
+        
+        # Create fill light (softer, secondary light)
+        fill_light = bpy.data.lights.new(name="Fill_Light", type='AREA')
+        fill_light.energy = 500
+        fill_light.size = bounding_sphere_radius
+        fill_obj = bpy.data.objects.new("Fill_Light", fill_light)
+        self.context.scene.collection.objects.link(fill_obj)
+        
+        # Create back light (rim light)
+        back_light = bpy.data.lights.new(name="Back_Light", type='AREA')
+        back_light.energy = 750
+        back_light.size = bounding_sphere_radius
+        back_obj = bpy.data.objects.new("Back_Light", back_light)
+        self.context.scene.collection.objects.link(back_obj)
+        
+        # Position lights relative to camera
+        cam_direction = self.cam_obj.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+        cam_right = self.cam_obj.matrix_world.to_quaternion() @ Vector((1.0, 0.0, 0.0))
+        cam_up = self.cam_obj.matrix_world.to_quaternion() @ Vector((0.0, 1.0, 0.0))
+        
+        # Key light - 45° up and to the side
+        key_pos = center + (cam_right + cam_up).normalized() * distance
+        key_obj.location = key_pos
+        
+        # Fill light - opposite side, lower intensity
+        fill_pos = center + (-cam_right + cam_up * 0.5).normalized() * distance
+        fill_obj.location = fill_pos
+        
+        # Back light - behind and above
+        back_pos = center + (-cam_direction + cam_up).normalized() * distance
+        back_obj.location = back_pos
+        
+        # Make lights face the center
+        for light in [key_obj, fill_obj, back_obj]:
+            direction = center - light.location
+            rot_quat = direction.to_track_quat('-Z', 'Y')
+            light.rotation_euler = rot_quat.to_euler()
+        
     def render(self, output_path):
         """Perform render"""
         self.context.scene.render.filepath = output_path
@@ -316,10 +374,23 @@ class RenderManager:
         for obj in bpy.data.objects:
             if obj.type == 'CAMERA' and obj.name.startswith('Render_Camera'):
                 bpy.data.objects.remove(obj, do_unlink=True)
+            if obj.type == 'CAMERA' and obj.name.startswith('Top_Down_Camera'):
+                bpy.data.objects.remove(obj, do_unlink=True)
         
         for cam in bpy.data.cameras:
             if cam.name.startswith('Render_Camera'):
                 bpy.data.cameras.remove(cam, do_unlink=True)
+            if cam.name.startswith('Top_Down_Camera'):
+                bpy.data.cameras.remove(cam, do_unlink=True)
+
+        # Restore original lights
+        if hasattr(self, 'original_lights'):
+            # Remove temporary lights
+            for obj in self.context.scene.objects:
+                if obj.type == 'LIGHT' and obj.name.startswith(('Key_Light', 'Fill_Light', 'Back_Light')):
+                    light = obj.data
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    bpy.data.lights.remove(light)
         
     def render_all_scenes(self, output_dir):
         """Render all camera scenes"""
@@ -338,6 +409,10 @@ class RenderManager:
                 
             # Setup camera
             self.setup_camera(camera_settings)
+
+            # Setup 3-point lighting if enabled
+            # if camera_settings.lighting_enabled == "ENABLED":
+            #     self.setup_three_point_lighting(camera_settings)
             
             # Set output path using suffix
             safe_suffix = "".join(c for c in camera_settings.filename_suffix if c.isalnum() or c in (' ', '-', '_')).rstrip()
