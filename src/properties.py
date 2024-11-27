@@ -4,44 +4,43 @@ from typing import List, Dict, Any
 DEFAULT_TEMPLATE = {
     "global_settings": {
         "icon_zoom": 3.45,
-        "hdri_path": "",
-        "hdri_strength": 1.0
+        "hdri_path": "C:/Users/Noah/Downloads/rogland_clear_night_4k.exr",
     },
     "cameras": [
         {
-            "name": "Front View",
-            "type": 'ORTHO',
+            "filename_suffix": "tooltip_picture",
+            "type": 'PERSP',
             "clip_end": 100000,
             "focal_length": 50,
             "samples": 32,
             "resolution_x": 918,
             "resolution_y": 432,
-            "distance": 10,
-            "horizontal_angle": 0,
-            "vertical_angle": 0,
+            "distance": 4,
+            "horizontal_angle": -45,
+            "vertical_angle": 45,
             "extra_zoom": 1.0,
-            "tilt": 0,
-            "transparent": True,
-            "hdri_strength": 1.0,
+            "tilt": -3,
+            "transparent": "TRANSPARENT",
+            "hdri_strength": 5.0,
             "offset_x": 0,
             "offset_y": 0,
             "offset_z": 0,
         },
         {
-            "name": "Three Quarter View",
+            "filename_suffix": "hud_picture",
             "type": 'PERSP',
             "clip_end": 100000,
             "focal_length": 50,
             "samples": 32,
             "resolution_x": 530,
             "resolution_y": 170,
-            "distance": 10,
-            "horizontal_angle": 45,
-            "vertical_angle": 30,
+            "distance": 4,
+            "horizontal_angle": 60,
+            "vertical_angle": 20,
             "extra_zoom": 1.0,
-            "tilt": 0,
-            "transparent": True,
-            "hdri_strength": 1.0,
+            "tilt": -3,
+            "transparent": "SOLID",
+            "hdri_strength": 4.0,
             "offset_x": 0,
             "offset_y": 0,
             "offset_z": 0,
@@ -61,10 +60,10 @@ def meshpoint_type(self, context):
         )
 
 class CameraProperties(bpy.types.PropertyGroup):
-    camera_name: bpy.props.StringProperty(
-        name="Camera Name",
-        description="Name of the camera",
-        default="New Camera",
+    filename_suffix: bpy.props.StringProperty(
+        name="Filename Suffix",
+        description="Filename suffix for the rendered image",
+        default="New View",
     )
     
     type: bpy.props.EnumProperty(
@@ -81,8 +80,8 @@ class CameraProperties(bpy.types.PropertyGroup):
     )
     
     focal_length: bpy.props.FloatProperty(
-        name="Focal Length",
-        description="Focal length of the camera",
+        name="F Length/Scale",
+        description="Focal length for perspective cameras, or orthographic scale for ortho cameras",
         default=50,
         min=0.1,
     )
@@ -95,14 +94,14 @@ class CameraProperties(bpy.types.PropertyGroup):
     )
 
     resolution_x: bpy.props.IntProperty(
-        name="Resolution X",
+        name="Res X",
         description="Resolution X",
         default=1920,
         min=1,
     )
 
     resolution_y: bpy.props.IntProperty(
-        name="Resolution Y",
+        name="Res Y",
         description="Resolution Y",
         default=1080,
         min=1,
@@ -116,19 +115,15 @@ class CameraProperties(bpy.types.PropertyGroup):
     )
     
     horizontal_angle: bpy.props.FloatProperty(
-        name="Horizontal Angle",
-        description="Horizontal rotation angle in degrees",
-        default=45.0,
-        subtype='ANGLE',
-        unit='ROTATION'
+        name="H Angle",
+        description="Camera horizontal angle away from the center",
+        default=45.0
     )
     
     vertical_angle: bpy.props.FloatProperty(
-        name="Vertical Angle",
-        description="Vertical rotation angle in degrees",
-        default=30.0,
-        subtype='ANGLE',
-        unit='ROTATION'
+        name="V Angle",
+        description="Camera vertical angle away from the center",
+        default=30.0
     )
 
     extra_zoom: bpy.props.FloatProperty(
@@ -144,14 +139,18 @@ class CameraProperties(bpy.types.PropertyGroup):
         default=0,
     )
 
-    transparent: bpy.props.BoolProperty(
-        name="Transparent",
-        description="Render with transparent background",
-        default=True,
+    transparent: bpy.props.EnumProperty(
+        name="Background",
+        description="Background type for rendering",
+        items=[
+            ("TRANSPARENT", "Transparent", "Render with transparent background"),
+            ("SOLID", "Solid", "Render with solid background")
+        ],
+        default="TRANSPARENT"
     )
 
     hdri_strength: bpy.props.FloatProperty(
-        name="HDRi Strength",
+        name="HDRi Str",
         description="Strength of the HDRi",
         default=1.0,
         min=0.0,
@@ -223,7 +222,6 @@ class Properties(bpy.types.PropertyGroup):
             # Load default template
             props.icon_zoom = DEFAULT_TEMPLATE["global_settings"]["icon_zoom"]
             props.hdri_path = DEFAULT_TEMPLATE["global_settings"]["hdri_path"]
-            props.hdri_strength = DEFAULT_TEMPLATE["global_settings"]["hdri_strength"]
             
             props.cameras.clear()
             for camera_settings in DEFAULT_TEMPLATE["cameras"]:

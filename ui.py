@@ -162,7 +162,6 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
         row = box.row(align=True)
         row.prop(props, "hdri_path", text="")
         row.operator("sinsii.pick_hdri", icon='FILE_FOLDER', text="")
-        box.prop(props, "hdri_strength", text="Strength")
         
         # Template Selection
         box = layout.box()
@@ -219,20 +218,20 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
             
 
 
-            add_setting_row("Name", "name")
+            add_setting_row("Name", "filename_suffix")
             add_setting_row("Type", "type")
             add_setting_row("Clip End", "clip_end")
-            add_setting_row("Focal Length", "focal_length")
+            add_setting_row("F Length", "focal_length")
             add_setting_row("Samples", "samples")
-            add_setting_row("Resolution X", "resolution_x")
-            add_setting_row("Resolution Y", "resolution_y")
+            add_setting_row("Res X", "resolution_x")
+            add_setting_row("Res Y", "resolution_y")
             add_setting_row("Distance", "distance")
-            add_setting_row("Horizontal Angle", "horizontal_angle")
-            add_setting_row("Vertical Angle", "vertical_angle")
+            add_setting_row("H Angle", "horizontal_angle")
+            add_setting_row("V Angle", "vertical_angle")
             add_setting_row("Extra Zoom", "extra_zoom")
             add_setting_row("Tilt", "tilt")
             add_setting_row("Transparent", "transparent")
-            add_setting_row("HDRI Strength", "hdri_strength")
+            add_setting_row("HDRI Str", "hdri_strength")
             add_setting_row("X Offset", "offset_x")
             add_setting_row("Y Offset", "offset_y")
             add_setting_row("Z Offset", "offset_z")
@@ -261,11 +260,15 @@ class SINSII_OT_Add_Render_Scene(bpy.types.Operator):
     def execute(self, context):
         props = context.scene.mesh_properties
         new_camera = props.cameras.add()
+        
+        # Set default camera name
+        new_camera.filename_suffix = f"view_{len(props.cameras)}"
+        
         # Copy settings from last camera if it exists
         if len(props.cameras) > 1:
             last_camera = props.cameras[-2]
             for prop in new_camera.bl_rna.properties:
-                if not prop.is_readonly:
+                if not prop.is_readonly and prop.identifier != 'filename_suffix':  # Don't copy the name
                     setattr(new_camera, prop.identifier, getattr(last_camera, prop.identifier))
         return {'FINISHED'}
 
@@ -344,8 +347,13 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
     bl_description = "Creates two perspective renders of the model with original materials"
     bl_idname = "sinsii.render_perspective"
     
-    filename_ext = ".png"
-    filter_glob: bpy.props.StringProperty(default="*.png", options={'HIDDEN'})
+    filename_ext = ""
+    use_filter_folder = True
+    directory: bpy.props.StringProperty(
+        name="Output Directory",
+        description="Directory to save renders",
+        subtype='DIR_PATH'
+    )
     
     def execute(self, context):
         try:
@@ -353,9 +361,9 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
             if not mesh:
                 self.report({'ERROR'}, "No mesh selected!")
                 return {'CANCELLED'}
-                
-            render_manager = RenderManager(context, mesh, self.filepath)
-            render_manager.render_all_scenes(self.filepath)
+            
+            render_manager = RenderManager(context, mesh, self.directory)
+            render_manager.render_all_scenes(self.directory)
             
             self.report({'INFO'}, f"All scenes rendered successfully")
             
@@ -1740,6 +1748,7 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     links.new(_clr.outputs["Alpha"], principled_node.inputs["Alpha"])
 
     return material
+
 
 
 

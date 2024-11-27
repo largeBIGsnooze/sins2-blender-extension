@@ -16,10 +16,13 @@ class RenderManager:
         self.original_settings = {
             'camera': context.scene.camera,
             'engine': context.scene.render.engine,
-            'samples': context.scene.cycles.samples,
             'exposure': context.scene.view_settings.exposure,
             'world': self._save_world_lighting()
         }
+        
+        # Store cycles samples only if using cycles
+        if context.scene.render.engine == 'CYCLES':
+            self.original_settings['samples'] = context.scene.cycles.samples
         
     def _save_world_lighting(self):
         """Save the current world lighting settings"""
@@ -49,13 +52,14 @@ class RenderManager:
             raise ValueError("Invalid bounding sphere radius")
         
         print("\n=== Camera Setup ===")
-        print(f"Camera Name: {camera_settings.camera_name}")
+        print(f"Filename Suffix: {camera_settings.filename_suffix}")
         print(f"Bounding Sphere Radius: {bounding_sphere_radius}")
         print(f"Model Center: {center}")
         
-        # Create camera
-        self.cam_data = bpy.data.cameras.new(name='Render_Camera')
-        self.cam_obj = bpy.data.objects.new('Render_Camera', self.cam_data)
+        # Create camera with proper name
+        camera_name = camera_settings.filename_suffix if camera_settings.filename_suffix else "Unnamed Camera"
+        self.cam_data = bpy.data.cameras.new(name=f'Render_Camera_{camera_name}')
+        self.cam_obj = bpy.data.objects.new(f'Render_Camera_{camera_name}', self.cam_data)
         self.context.scene.collection.objects.link(self.cam_obj)
         
         # Set camera as active
@@ -73,23 +77,21 @@ class RenderManager:
         print(f"Tilt: {camera_settings.tilt}°")
         
         # Convert spherical to Cartesian coordinates
-        x = distance * math.cos(v_angle) * math.sin(h_angle)
-        y = distance * math.cos(v_angle) * math.cos(h_angle)
-        z = distance * math.sin(v_angle)
+        # Vertical angle: 0° = horizontal, 90° = up, -90° = down
+        # Horizontal angle: 0° = front (-Y), 90° = left (-X), -90° = right (+X)
+        horizontal_distance = distance * math.cos(v_angle)  # Distance projected onto XY plane
+        x = -horizontal_distance * math.sin(h_angle)        # X = -horizontal_distance * sin(h)
+        y = -horizontal_distance * math.cos(h_angle)       # Y = -horizontal_distance * cos(h)
+        z = distance * math.sin(v_angle)                   # Z = distance * sin(v)
         
         print("\n=== Pre-Transform Position ===")
         print(f"Initial Position: ({x}, {y}, {z})")
         
-        # Apply GAME_MATRIX transformation
-        camera_pos = GAME_MATRIX @ Vector((x, y, z))
-        
-        print(f"After GAME_MATRIX: ({camera_pos.x}, {camera_pos.y}, {camera_pos.z})")
-        
         # Set camera position with offsets
         final_pos = Vector((
-            center[0] + camera_pos.x + camera_settings.offset_x,
-            center[1] + camera_pos.y + camera_settings.offset_y,
-            center[2] + camera_pos.z + camera_settings.offset_z
+            center[0] + x + camera_settings.offset_x,
+            center[1] + y + camera_settings.offset_y,
+            center[2] + z + camera_settings.offset_z
         ))
         self.cam_obj.location = final_pos
         
@@ -97,20 +99,31 @@ class RenderManager:
         print(f"Final Position: {final_pos}")
         print(f"Offsets: ({camera_settings.offset_x}, {camera_settings.offset_y}, {camera_settings.offset_z})")
         
-        # Point camera at model center and apply tilt
+        # Point camera at model center
         direction = Vector(center) - self.cam_obj.location
         rot_quat = direction.to_track_quat('-Z', 'Y')
         self.cam_obj.rotation_euler = rot_quat.to_euler()
         
-        # Apply tilt rotation
-        tilt_rotation = Euler((0, 0, math.radians(camera_settings.tilt)), 'XYZ')
-        self.cam_obj.rotation_euler.rotate(tilt_rotation)
+        # Apply tilt rotation around local X axis
+        tilt_rad = math.radians(camera_settings.tilt)
+        local_rotation = Euler((tilt_rad, 0, 0), 'XYZ')
+        
+        # Convert to quaternions for proper local rotation
+        rot_quat = self.cam_obj.rotation_euler.to_quaternion()
+        tilt_quat = local_rotation.to_quaternion()
+        final_rot = rot_quat @ tilt_quat
+        
+        # Apply final rotation
+        self.cam_obj.rotation_euler = final_rot.to_euler()
         
         print(f"Final Rotation: {[math.degrees(a) for a in self.cam_obj.rotation_euler]}")
         
         # Set camera settings
         self.cam_data.type = camera_settings.type
-        self.cam_data.lens = camera_settings.focal_length
+        if camera_settings.type == 'ORTHO':
+            self.cam_data.ortho_scale = camera_settings.focal_length
+        else:
+            self.cam_data.lens = camera_settings.focal_length
         self.cam_data.clip_end = camera_settings.clip_end
         
         print("\n=== Camera Properties ===")
@@ -125,9 +138,9 @@ class RenderManager:
         self.context.scene.cycles.samples = render_settings.samples
         self.context.scene.render.resolution_x = render_settings.resolution_x
         self.context.scene.render.resolution_y = render_settings.resolution_y
-        self.context.scene.render.film_transparent = render_settings.transparent
+        self.context.scene.render.film_transparent = (render_settings.transparent == "TRANSPARENT")
         
-    def setup_hdri(self, hdri_settings):
+    def setup_hdri(self, hdri_settings, camera_settings):
         """Setup HDRI world lighting"""
         if hdri_settings.hdri_path:
             self.context.scene.world.use_nodes = True
@@ -144,12 +157,12 @@ class RenderManager:
             # Load HDRI image
             env_tex.image = bpy.data.images.load(hdri_settings.hdri_path)
             
-            # Set strength on the Background node
-            background.inputs['Strength'].default_value = hdri_settings.hdri_strength
+            # Set strength from camera settings
+            background.inputs['Strength'].default_value = camera_settings.hdri_strength
             
             # Connect nodes
-            links.new(tex_coord.outputs['Generated'], mapping.inputs[0])  # Vector input is at index 0
-            links.new(mapping.outputs[0], env_tex.inputs[0])  # Vector output/input at index 0
+            links.new(tex_coord.outputs['Generated'], mapping.inputs[0])
+            links.new(mapping.outputs[0], env_tex.inputs[0])
             links.new(env_tex.outputs['Color'], background.inputs['Color'])
             links.new(background.outputs['Background'], output.inputs['Surface'])
             
@@ -162,16 +175,26 @@ class RenderManager:
             
     def setup_icon_render_settings(self):
         """Setup specific render settings for icon rendering"""
+        print("\n=== Setting up Icon Render Settings ===")
         render = self.context.scene.render
         view = self.context.scene.view_settings
         
-        # Basic render settings
+        print(f"Original Engine: {render.engine}")
         render.engine = 'CYCLES'
-        render.cycles.samples = 64
+        print(f"Setting Engine to: {render.engine}")
+        
+        # Basic render settings
         render.resolution_x = 200
         render.resolution_y = 200
         render.film_transparent = True
-        render.filter_size = 1.5  # Sharper pixels
+        render.filter_size = 1.5
+        print(f"Resolution: {render.resolution_x}x{render.resolution_y}")
+        print(f"Transparent: {render.film_transparent}")
+        
+        # Set cycles settings
+        if hasattr(self.context.scene, 'cycles'):
+            self.context.scene.cycles.samples = 64
+            print(f"Cycles Samples: {self.context.scene.cycles.samples}")
         
         # Image settings
         render.image_settings.file_format = 'PNG'
@@ -212,35 +235,65 @@ class RenderManager:
                 emission = nodes.new('ShaderNodeEmission')
                 transparent = nodes.new('ShaderNodeBsdfTransparent')
                 mix_shader = nodes.new('ShaderNodeMixShader')
+                geometry = nodes.new('ShaderNodeNewGeometry')  # Add geometry node for backface detection
                 
                 # Position nodes
                 output.location = (300, 0)
                 mix_shader.location = (100, 0)
                 emission.location = (-100, -100)
                 transparent.location = (-100, 100)
+                geometry.location = (-300, 0)
                 
                 # Setup emission
                 emission.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)
                 emission.inputs[1].default_value = 1.0
                 
-                # Connect nodes
+                # Connect nodes - use backfacing for mix factor
+                links.new(geometry.outputs['Backfacing'], mix_shader.inputs[0])
                 links.new(transparent.outputs[0], mix_shader.inputs[1])
                 links.new(emission.outputs[0], mix_shader.inputs[2])
                 links.new(mix_shader.outputs[0], output.inputs[0])
                 
                 obj.active_material = icon_mat
                 
+    def cleanup_icon_materials(self):
+        """Restore original materials after icon rendering"""
+        if hasattr(self, 'original_materials'):
+            for obj, material in self.original_materials.items():
+                obj.active_material = material
+                
+            # Clean up temporary icon materials
+            for material in bpy.data.materials:
+                if material.name.startswith("Icon_Material"):
+                    bpy.data.materials.remove(material, do_unlink=True)
+        
     def setup_top_down_camera(self, zoom_factor):
         """Setup orthographic top-down camera"""
-        bounding_sphere_radius, _, _ = get_bounding_box(self.mesh)
+        bounding_sphere_radius, center_x, center_y = get_bounding_box(self.mesh)
         if not bounding_sphere_radius or bounding_sphere_radius <= 0:
             raise ValueError("Invalid bounding sphere radius")
-            
+        
         self.cam_data = bpy.data.cameras.new(name='Top_Down_Camera')
         self.cam_data.type = 'ORTHO'
         
         self.cam_obj = bpy.data.objects.new('Top_Down_Camera', self.cam_data)
         self.context.scene.collection.objects.link(self.cam_obj)
+        
+        # Position camera above mesh
+        self.cam_obj.location = (
+            self.mesh.location.x,
+            self.mesh.location.y,
+            self.mesh.location.z + bounding_sphere_radius * 2
+        )
+        
+        # Rotate camera to look down (-90 degrees around X)
+        self.cam_obj.rotation_euler = (0, 0, math.radians(-90))
+        
+        # Set orthographic scale based on bounding sphere and zoom
+        self.cam_data.ortho_scale = bounding_sphere_radius * zoom_factor
+        
+        # Set as active camera
+        self.context.scene.camera = self.cam_obj
         
     def render(self, output_path):
         """Perform render"""
@@ -251,34 +304,45 @@ class RenderManager:
         """Restore original settings and clean up"""
         self.context.scene.camera = self.original_settings['camera']
         self.context.scene.render.engine = self.original_settings['engine']
-        self.context.scene.cycles.samples = self.original_settings['samples']
         self.context.scene.view_settings.exposure = self.original_settings['exposure']
         self._restore_world_lighting(self.original_settings['world'])
+
+        # Restore cycles samples only if they were stored and we're using cycles
+        if ('samples' in self.original_settings and 
+            self.context.scene.render.engine == 'CYCLES'):
+            self.context.scene.cycles.samples = self.original_settings['samples']
         
-        if self.cam_obj:
-            bpy.data.objects.remove(self.cam_obj, do_unlink=True)
-        if self.cam_data:
-            bpy.data.cameras.remove(self.cam_data, do_unlink=True)
+        # Clean up all cameras and camera data
+        for obj in bpy.data.objects:
+            if obj.type == 'CAMERA' and obj.name.startswith('Render_Camera'):
+                bpy.data.objects.remove(obj, do_unlink=True)
         
-    def render_all_scenes(self, base_filepath):
+        for cam in bpy.data.cameras:
+            if cam.name.startswith('Render_Camera'):
+                bpy.data.cameras.remove(cam, do_unlink=True)
+        
+    def render_all_scenes(self, output_dir):
         """Render all camera scenes"""
-        for i, camera_settings in enumerate(self.context.scene.mesh_properties.cameras):
+        mesh_name = self.mesh.name
+        
+        for camera_settings in self.context.scene.mesh_properties.cameras:
             # Setup render settings for this camera
             self.setup_render_settings(camera_settings)
             
             # Setup HDRI if path is set
             hdri_settings = self.context.scene.mesh_properties
             if hdri_settings.hdri_path:
-                self.setup_hdri(hdri_settings)
+                self.setup_hdri(hdri_settings, camera_settings)
             else:
                 self.setup_transparent_world()
                 
             # Setup camera
             self.setup_camera(camera_settings)
             
-            # Set output path
-            filename = f"{os.path.splitext(base_filepath)[0]}_{i+1}.png"
-            self.context.scene.render.filepath = filename
+            # Set output path using suffix
+            safe_suffix = "".join(c for c in camera_settings.filename_suffix if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            filename = f"{mesh_name}_{safe_suffix}.png"
+            self.context.scene.render.filepath = os.path.join(output_dir, filename)
             
             # Render
             bpy.ops.render.render(write_still=True)

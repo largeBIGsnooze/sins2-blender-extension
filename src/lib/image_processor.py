@@ -1,3 +1,6 @@
+import bpy
+import math
+
 class IconProcessor:
     def __init__(self, target_size=(200, 200)):
         self.target_width, self.target_height = target_size
@@ -5,22 +8,34 @@ class IconProcessor:
     def process_icon(self, image_path):
         """Convert render to icon using Blender's built-in image processing"""
         try:
+            print("\n=== Processing Icon ===")
+            print(f"Loading image from: {image_path}")
             source_image = self._load_image(image_path)
             if not source_image:
+                print("Failed to load source image!")
                 return False
-                
+            
+            print(f"Image size: {source_image.size[0]}x{source_image.size[1]}")
+            print("Creating alpha map...")
             pixel_array = self._create_alpha_map(source_image)
+            print(f"Alpha map size: {len(pixel_array)}x{len(pixel_array[0])}")
+            
+            print("Creating silhouette...")
             result_image = self._create_silhouette(
                 pixel_array, 
                 source_image.size[0],
                 source_image.size[1]
             )
             
+            print("Saving processed image...")
             self._save_and_cleanup(image_path, source_image, result_image)
+            print("Processing complete!")
             return True
             
         except Exception as e:
             print(f"Error in post-processing: {str(e)}")
+            import traceback
+            print(f"Traceback:\n{traceback.format_exc()}")
             return False
             
     def _load_image(self, image_path):
