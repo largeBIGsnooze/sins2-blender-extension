@@ -89,14 +89,14 @@ class CameraProperties(bpy.types.PropertyGroup):
         default="New View",
         update=camera_property_update
     )
-    
+
     type: bpy.props.EnumProperty(
         items=[("PERSP", "Perspective", ""), ("ORTHO", "Orthographic", "")],
         name="Camera Type",
         default="PERSP",
         update=camera_property_update
     )
-    
+
     clip_end: bpy.props.FloatProperty(
         name="Camera Clip End",
         description="Clip end of the camera",
@@ -104,7 +104,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         min=0.1,
         update=camera_property_update
     )
-    
+
     focal_length: bpy.props.FloatProperty(
         name="F Length/Scale",
         description="Focal length for perspective cameras, or orthographic scale for ortho cameras",
@@ -144,14 +144,14 @@ class CameraProperties(bpy.types.PropertyGroup):
         min=0.1,
         update=camera_property_update
     )
-    
+
     horizontal_angle: bpy.props.FloatProperty(
         name="H Angle",
         description="Camera horizontal angle away from the center",
         default=45.0,
         update=camera_property_update
     )
-    
+
     vertical_angle: bpy.props.FloatProperty(
         name="V Angle",
         description="Camera vertical angle away from the center",
@@ -191,21 +191,21 @@ class CameraProperties(bpy.types.PropertyGroup):
         default=0.0,
         update=camera_property_update
     )
-    
+
     offset_y: bpy.props.FloatProperty(
         name="Y Offset",
         description="Camera Y offset",
         default=0.0,
         update=camera_property_update
     )
-    
+
     offset_z: bpy.props.FloatProperty(
         name="Z Offset",
         description="Camera Z offset",
         default=0.0,
         update=camera_property_update
     )
-    
+
     lighting_enabled: bpy.props.EnumProperty(
         name="Enable 3-Point Lighting",
         description="Enable 3-point lighting setup",
@@ -233,7 +233,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         min=0.0,
         update=camera_property_update
     )
-    
+
     fill_light_energy: bpy.props.FloatProperty(
         name="Fill Light Energy",
         description="Energy of the fill light",
@@ -241,7 +241,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         min=0.0,
         update=camera_property_update
     )
-    
+
     back_light_energy: bpy.props.FloatProperty(
         name="Back Light Energy",
         description="Energy of the back (rim) light",
@@ -249,7 +249,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         min=0.0,
         update=camera_property_update
     )
-    
+
     light_size_multiplier: bpy.props.FloatProperty(
         name="Light Size",
         description="Size multiplier for all lights relative to bounding sphere radius",
@@ -269,7 +269,7 @@ class CameraProperties(bpy.types.PropertyGroup):
         default="ENABLED",
         update=camera_property_update
     )
-    
+
     sun_energy: bpy.props.FloatProperty(
         name="Sun Energy",
         description="Energy of the sun light",
@@ -277,14 +277,14 @@ class CameraProperties(bpy.types.PropertyGroup):
         min=0.0,
         update=camera_property_update
     )
-    
+
     sun_angle_h: bpy.props.FloatProperty(
         name="Sun H Angle",
         description="Sun horizontal angle",
         default=45.0,
         update=camera_property_update
     )
-    
+
     sun_angle_v: bpy.props.FloatProperty(
         name="Sun V Angle",
         description="Sun vertical angle",
@@ -298,7 +298,7 @@ class CameraTemplate(bpy.types.PropertyGroup):
         description="Name of the camera template",
         default="New Template"
     )
-    
+
     settings: bpy.props.CollectionProperty(type=CameraProperties)
 
     def save_current_cameras(self, context):
@@ -317,38 +317,38 @@ class Properties(bpy.types.PropertyGroup):
         description="Show or hide camera settings",
         default=False
     )
-    
+
     def get_template_items(self, context):
         items = [
             ('DEFAULT', "Default", "Default camera configuration"),
             ('CUSTOM', "Custom", "Custom camera configuration"),
         ]
-        
+
         # Add saved templates
         from .lib.template_manager import TemplateManager
         template_manager = TemplateManager()
         templates = template_manager.load_templates()
         for name in templates.keys():
             items.append((name, name, f"Load {name} template"))
-            
+
         return items
-        
+
     def load_camera_template(self, context):
         props = context.scene.mesh_properties
         self.is_loading_template = True
-        
+
         if self.camera_template == 'DEFAULT':
             # Load default template
             props.icon_zoom = DEFAULT_TEMPLATE["global_settings"]["icon_zoom"]
             props.hdri_path = DEFAULT_TEMPLATE["global_settings"]["hdri_path"]
-            
+
             props.cameras.clear()
             for camera_settings in DEFAULT_TEMPLATE["cameras"]:
                 camera = props.cameras.add()
                 for prop, value in camera_settings.items():
                     if hasattr(camera, prop):
                         setattr(camera, prop, value)
-        
+
         elif self.camera_template == 'CUSTOM':
             # Keep current settings
             pass
@@ -357,7 +357,7 @@ class Properties(bpy.types.PropertyGroup):
             from .lib.template_manager import TemplateManager
             template_manager = TemplateManager()
             template_manager.load_template(self.camera_template, props)
-    
+
     camera_template: bpy.props.EnumProperty(
         name="Camera Template",
         description="Select a camera configuration template",
@@ -365,7 +365,7 @@ class Properties(bpy.types.PropertyGroup):
         default=0,  # Using integer index instead of string when items is a function
         update=load_camera_template
     )
-    
+
     cameras: bpy.props.CollectionProperty(type=CameraProperties)
 
     team_color_1: bpy.props.FloatVectorProperty(
@@ -440,7 +440,7 @@ def register():
     bpy.utils.register_class(CameraTemplate)
     bpy.utils.register_class(Properties)
     bpy.types.Scene.mesh_properties = bpy.props.PointerProperty(type=Properties)
-    
+
     # Register the handler
     bpy.app.handlers.load_post.append(initialize_default_cameras)
 
@@ -458,13 +458,13 @@ def initialize_default_cameras(dummy=None):
         pass
     return None
 
-
 def unregister():
     # Remove the handler first
     if initialize_default_cameras in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(initialize_default_cameras)
-        
+
     # Then unregister classes
     del bpy.types.Scene.mesh_properties
     bpy.utils.unregister_class(Properties)
     bpy.utils.unregister_class(CameraProperties)
+    bpy.utils.unregister_class(CameraTemplate)
