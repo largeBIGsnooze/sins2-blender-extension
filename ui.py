@@ -125,16 +125,12 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
         box.prop(context.scene.mesh_properties, "toggle_teamcolor")
 
-        # Render button
-        layout = self.layout
-        layout.separator()
-
 
 class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Render Settings"
+    bl_label = "Renders"
     bl_idname = "SINSII_PT_render_settings"
     bl_options = {"DEFAULT_CLOSED"}
-    bl_order = 2
+    bl_order = 5
 
     def draw(self, context):
         layout = self.layout
