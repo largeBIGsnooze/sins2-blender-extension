@@ -22,7 +22,7 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 - Select the mesh you want to render
 - Load the default template by pressing `Load Default Template` in the `Camera Template` section
     - The default template generates the largest size of hud and tooltip icons used in the game using similar camera settings
-    - Select the HDRi you want to use 
+    - Select the HDRi you want to use
         (free space pack: https://www.artstation.com/marketplace/p/LrOD5/free-space-and-nebula-hdri-sci-fi-skydomes)
     - Optional: Tweak the settings to your liking and save templates of your own (saved in `%localappdata%\sins2\sins2-blender-extension\camera_templates.json`)
 - Press `Render Scene` to render perspective views
@@ -58,4 +58,4 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 ## Credits
 - Stardock and Ironclad for `Meshbuilder.exe` from their modding tools repository
 
-https://github.com/IroncladGames/tools
+https://github.com/StardockCorp/sins2modtools
