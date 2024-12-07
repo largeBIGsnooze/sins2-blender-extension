@@ -3,6 +3,7 @@ from mathutils import Vector, Matrix
 # Define matrix here instead of importing from ui
 GAME_MATRIX = Matrix(((-1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
 
+
 def get_bounding_box(mesh):
     def calculate_center(l):
         return (max(l) + min(l)) / 2 if l else 0
