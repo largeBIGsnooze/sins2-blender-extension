@@ -32,7 +32,7 @@ DUPLICATION_POSTFIX = r"(\-\d+)?"
 MESHPOINTING_RULES = {
     "ability": rf"^ability(\.\d*)?{DUPLICATION_POSTFIX}$",
     "child": rf"^child\.(\w*)\.?(\d+)?{DUPLICATION_POSTFIX}$",
-    "weapon": rf"^weapon\.\w+(\.\d+)?{DUPLICATION_POSTFIX}$",
+    "weapon": rf"^weapon\.\w+(\.\d+|\.\w+)?{DUPLICATION_POSTFIX}$",
     "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
     "bomb": rf"^bomb(\.\d+)?{DUPLICATION_POSTFIX}$",
     "exhaust": rf"^exhaust(\.\d*)?{DUPLICATION_POSTFIX}$",
@@ -138,53 +138,68 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
         # Render Buttons
         box = layout.box()
-        box.label(text="Render", icon='RENDER_STILL')
+        box.label(text="Render", icon="RENDER_STILL")
         row = box.row()
         selected_mesh = get_selected_mesh()
-        if selected_mesh and selected_mesh.type == 'MESH' and selected_mesh.data.vertices:
+        if (
+            selected_mesh
+            and selected_mesh.type == "MESH"
+            and selected_mesh.data.vertices
+        ):
             row.operator("sinsii.render_perspective", text="Render Scene")
             row.operator("sinsii.render_top_down", text="Render Icon")
         else:
-            row.label(text="No valid mesh selected!", icon='ERROR')
+            row.label(text="No valid mesh selected!", icon="ERROR")
 
         # Template Selection
         box = layout.box()
-        box.label(text="Camera Templates", icon='CAMERA_DATA')
+        box.label(text="Camera Templates", icon="CAMERA_DATA")
         # Check if we have any cameras set up
         if len(props.cameras) == 0:
             row = box.row()
-            row.operator("sinsii.load_default_template", icon='FILE_TICK', text="Load Default Template")
+            row.operator(
+                "sinsii.load_default_template",
+                icon="FILE_TICK",
+                text="Load Default Template",
+            )
         else:
             row = box.row()
             row.prop(props, "camera_template", text="")
 
         # HDRI Settings
         box = layout.box()
-        box.label(text="HDRI Settings", icon='WORLD')
+        box.label(text="HDRI Settings", icon="WORLD")
         row = box.row(align=True)
         row.prop(props, "hdri_path", text="")
-        row.operator("sinsii.pick_hdri", icon='FILE_FOLDER', text="")
+        row.operator("sinsii.pick_hdri", icon="FILE_FOLDER", text="")
 
         # Icon Settings
         box = layout.box()
-        box.label(text="Icon Settings", icon='IMAGE_DATA')
+        box.label(text="Icon Settings", icon="IMAGE_DATA")
         box.prop(props, "icon_zoom", text="Icon Zoom")
 
-
-
         # Template Management
-        if props.camera_template == 'CUSTOM':
+        if props.camera_template == "CUSTOM":
             row = box.row()
-            row.operator("sinsii.save_camera_template", icon='FILE_TICK', text="Save As Template")
-        elif props.camera_template not in ['DEFAULT', 'CUSTOM']:
+            row.operator(
+                "sinsii.save_camera_template", icon="FILE_TICK", text="Save As Template"
+            )
+        elif props.camera_template not in ["DEFAULT", "CUSTOM"]:
             row = box.row()
-            row.operator("sinsii.remove_camera_template", icon='X', text="Remove Template")
+            row.operator(
+                "sinsii.remove_camera_template", icon="X", text="Remove Template"
+            )
 
         # Camera Settings
         box = layout.box()
         row = box.row()
-        row.prop(props, "show_camera_settings", icon="TRIA_DOWN" if props.show_camera_settings else "TRIA_RIGHT", icon_only=True)
-        row.label(text="Camera Settings", icon='SCENE')
+        row.prop(
+            props,
+            "show_camera_settings",
+            icon="TRIA_DOWN" if props.show_camera_settings else "TRIA_RIGHT",
+            icon_only=True,
+        )
+        row.label(text="Camera Settings", icon="SCENE")
 
         if props.show_camera_settings:
             # Header row with scene numbers and remove buttons
@@ -194,8 +209,12 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
                 col = row.column()
                 sub_row = col.row(align=True)
                 sub_row.label(text=f"Camera {i+1}")
-                if len(props.cameras) > 1:  # Only show remove button if we have more than one camera
-                    op = sub_row.operator("sinsii.remove_render_scene", text="", icon='X')
+                if (
+                    len(props.cameras) > 1
+                ):  # Only show remove button if we have more than one camera
+                    op = sub_row.operator(
+                        "sinsii.remove_render_scene", text="", icon="X"
+                    )
                     op.camera_index = i
 
             # Settings rows
@@ -207,12 +226,10 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
                     if isinstance(getattr(camera, prop_name), bool):
                         # Center boolean toggles
                         split = col.split(factor=0.5)
-                        split.alignment = 'CENTER'
+                        split.alignment = "CENTER"
                         split.prop(camera, prop_name, text="")
                     else:
                         col.prop(camera, prop_name, text="")
-
-
 
             add_setting_row("Name", "filename_suffix")
             add_setting_row("Type", "type")
@@ -243,7 +260,7 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
         # Scene Management
         row = box.row()
-        row.operator("sinsii.add_render_scene", icon='ADD', text="Add Camera")
+        row.operator("sinsii.add_render_scene", icon="ADD", text="Add Camera")
 
 
 class SINSII_OT_Load_Default_Template(bpy.types.Operator):
@@ -253,8 +270,8 @@ class SINSII_OT_Load_Default_Template(bpy.types.Operator):
 
     def execute(self, context):
         props = context.scene.mesh_properties
-        props.camera_template = 'DEFAULT'  # This will trigger the update function
-        return {'FINISHED'}
+        props.camera_template = "DEFAULT"  # This will trigger the update function
+        return {"FINISHED"}
 
 
 class SINSII_OT_Add_Render_Scene(bpy.types.Operator):
@@ -273,9 +290,15 @@ class SINSII_OT_Add_Render_Scene(bpy.types.Operator):
         if len(props.cameras) > 1:
             last_camera = props.cameras[-2]
             for prop in new_camera.bl_rna.properties:
-                if not prop.is_readonly and prop.identifier != 'filename_suffix':  # Don't copy the name
-                    setattr(new_camera, prop.identifier, getattr(last_camera, prop.identifier))
-        return {'FINISHED'}
+                if (
+                    not prop.is_readonly and prop.identifier != "filename_suffix"
+                ):  # Don't copy the name
+                    setattr(
+                        new_camera,
+                        prop.identifier,
+                        getattr(last_camera, prop.identifier),
+                    )
+        return {"FINISHED"}
 
 
 class SINSII_OT_Remove_Render_Scene(bpy.types.Operator):
@@ -289,7 +312,7 @@ class SINSII_OT_Remove_Render_Scene(bpy.types.Operator):
         props = context.scene.mesh_properties
         if len(props.cameras) > 1:  # Keep at least one camera
             props.cameras.remove(self.camera_index)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
@@ -298,7 +321,7 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
     bl_idname = "sinsii.render_top_down"
 
     filename_ext = ".png"
-    filter_glob: bpy.props.StringProperty(default="*.png", options={'HIDDEN'})
+    filter_glob: bpy.props.StringProperty(default="*.png", options={"HIDDEN"})
 
     @classmethod
     def poll(cls, context):
@@ -314,8 +337,8 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
         try:
             mesh = get_selected_mesh()
             if not mesh:
-                self.report({'ERROR'}, "No mesh selected!")
-                return {'CANCELLED'}
+                self.report({"ERROR"}, "No mesh selected!")
+                return {"CANCELLED"}
 
             render_manager = RenderManager(context, mesh, self.filepath)
 
@@ -323,7 +346,9 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
             render_manager.setup_icon_render_settings()
             render_manager.setup_transparent_world()
             render_manager.setup_icon_materials()
-            render_manager.setup_top_down_camera(context.scene.mesh_properties.icon_zoom)
+            render_manager.setup_top_down_camera(
+                context.scene.mesh_properties.icon_zoom
+            )
 
             # Render and get the unique path
             unique_filepath = render_manager.render(self.filepath)
@@ -331,20 +356,23 @@ class SINSII_OT_Render_Top_Down(bpy.types.Operator, ExportHelper):
             # Post-process using the unique filepath
             processor = IconProcessor()
             if processor.process_icon(unique_filepath):
-                self.report({'INFO'}, f"Icon render saved to: {unique_filepath}")
+                self.report({"INFO"}, f"Icon render saved to: {unique_filepath}")
             else:
-                self.report({'WARNING'}, f"Render saved but post-processing failed: {unique_filepath}")
+                self.report(
+                    {"WARNING"},
+                    f"Render saved but post-processing failed: {unique_filepath}",
+                )
 
         except Exception as e:
-            self.report({'ERROR'}, f"Render failed: {str(e)}")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, f"Render failed: {str(e)}")
+            return {"CANCELLED"}
 
         finally:
-            if 'render_manager' in locals():
+            if "render_manager" in locals():
                 render_manager.cleanup()
                 render_manager.cleanup_icon_materials()
 
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
@@ -357,31 +385,30 @@ class SINSII_OT_Render_Perspective(bpy.types.Operator, ExportHelper):
     directory: bpy.props.StringProperty(
         name="Output Directory",
         description="Directory to save renders",
-        subtype='DIR_PATH'
+        subtype="DIR_PATH",
     )
 
     def execute(self, context):
         try:
             mesh = get_selected_mesh()
             if not mesh:
-                self.report({'ERROR'}, "No mesh selected!")
-                return {'CANCELLED'}
+                self.report({"ERROR"}, "No mesh selected!")
+                return {"CANCELLED"}
 
             render_manager = RenderManager(context, mesh, self.directory)
             render_manager.render_all_scenes(self.directory)
 
-            self.report({'INFO'}, f"All scenes rendered successfully")
+            self.report({"INFO"}, f"All scenes rendered successfully")
 
         except Exception as e:
-            self.report({'ERROR'}, f"Render failed: {str(e)}")
-            return {'CANCELLED'}
+            self.report({"ERROR"}, f"Render failed: {str(e)}")
+            return {"CANCELLED"}
 
         finally:
-            if 'render_manager' in locals():
+            if "render_manager" in locals():
                 render_manager.cleanup()
 
-        return {'FINISHED'}
-
+        return {"FINISHED"}
 
 
 class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
@@ -391,12 +418,12 @@ class SINSII_OT_Pick_HDRI(bpy.types.Operator, ImportHelper):
     filename_ext = ".hdr;.exr"
     filter_glob: bpy.props.StringProperty(
         default="*.hdr;*.exr",
-        options={'HIDDEN'},
+        options={"HIDDEN"},
     )
 
     def execute(self, context):
         context.scene.mesh_properties.hdri_path = self.filepath
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class SINSII_OT_Save_Camera_Template(bpy.types.Operator):
@@ -407,7 +434,7 @@ class SINSII_OT_Save_Camera_Template(bpy.types.Operator):
     template_name: bpy.props.StringProperty(
         name="Template Name",
         description="Name for the new template",
-        default="My Template"
+        default="My Template",
     )
 
     def invoke(self, context, event):
@@ -419,19 +446,19 @@ class SINSII_OT_Save_Camera_Template(bpy.types.Operator):
 
     def execute(self, context):
         from .src.lib.template_manager import TemplateManager
+
         template_manager = TemplateManager()
 
         # Save all current cameras to template
         template_manager.save_template(
-            self.template_name,
-            context.scene.mesh_properties
+            self.template_name, context.scene.mesh_properties
         )
 
         # Force update of template enum
         context.scene.mesh_properties.property_unset("camera_template")
 
-        self.report({'INFO'}, f"Saved template: {self.template_name}")
-        return {'FINISHED'}
+        self.report({"INFO"}, f"Saved template: {self.template_name}")
+        return {"FINISHED"}
 
 
 class SINSII_OT_Remove_Camera_Template(bpy.types.Operator):
@@ -441,14 +468,15 @@ class SINSII_OT_Remove_Camera_Template(bpy.types.Operator):
 
     def execute(self, context):
         from .src.lib.template_manager import TemplateManager
+
         template_manager = TemplateManager()
 
         props = context.scene.mesh_properties
-        if props.camera_template not in ['DEFAULT', 'CUSTOM']:
+        if props.camera_template not in ["DEFAULT", "CUSTOM"]:
             template_manager.remove_template(props.camera_template)
-            props.camera_template = 'DEFAULT'
+            props.camera_template = "DEFAULT"
 
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -1501,10 +1529,26 @@ def load_mesh_material(name, filepath, textures_path):
         if os.path.exists(textures_dir):
             texture_base = os.path.join(textures_dir, name)
             return [
-                f"{texture_base}_clr.dds" if os.path.exists(f"{texture_base}_clr.dds") else "",
-                f"{texture_base}_orm.dds" if os.path.exists(f"{texture_base}_orm.dds") else "",
-                f"{texture_base}_msk.dds" if os.path.exists(f"{texture_base}_msk.dds") else "",
-                f"{texture_base}_nrm.dds" if os.path.exists(f"{texture_base}_nrm.dds") else ""
+                (
+                    f"{texture_base}_clr.dds"
+                    if os.path.exists(f"{texture_base}_clr.dds")
+                    else ""
+                ),
+                (
+                    f"{texture_base}_orm.dds"
+                    if os.path.exists(f"{texture_base}_orm.dds")
+                    else ""
+                ),
+                (
+                    f"{texture_base}_msk.dds"
+                    if os.path.exists(f"{texture_base}_msk.dds")
+                    else ""
+                ),
+                (
+                    f"{texture_base}_nrm.dds"
+                    if os.path.exists(f"{texture_base}_nrm.dds")
+                    else ""
+                ),
             ]
         return ["", "", "", ""]
 
@@ -1522,7 +1566,6 @@ def load_mesh_material(name, filepath, textures_path):
             "normal_texture",
         ]
     ]
-
 
 
 def create_composite_nodes():
@@ -1600,7 +1643,9 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
         mix_node_team_color,
         "Toggle Team Color",
         "mesh_properties.toggle_teamcolor",
-        node_id.driver_add(f'nodes["{mix_node_team_color.name}"].inputs[0].default_value').driver
+        node_id.driver_add(
+            f'nodes["{mix_node_team_color.name}"].inputs[0].default_value'
+        ).driver,
     )
 
     clamp_node = nodes.new(type="ShaderNodeClamp")
