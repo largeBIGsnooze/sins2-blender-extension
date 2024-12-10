@@ -1,7 +1,7 @@
-from mathutils import Vector, Matrix
-
-# Define matrix here instead of importing from ui
-GAME_MATRIX = Matrix(((-1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
+from mathutils import Vector
+from .constants import GAME_MATRIX, MESHPOINT_MATRIX, MESHPOINTING_RULES
+from .filesystem import normalize, rename
+import bpy, os, json, re
 
 
 def get_bounding_box(mesh):
@@ -37,4 +37,136 @@ def get_bounding_box(mesh):
 
         return bounding_sphere_radius, extents, center
 
-        # We can add more helper functions from ui.py here
+
+def get_unused_materials(mesh, materials):
+    unused_mats = []
+    for i, mat in enumerate(materials):
+        tris = []
+        for tri in mesh.data.polygons:
+            if tri.material_index == i:
+                tris.append(tri.material_index)
+        if len(tris) == 0:
+            unused_mats.append(mat)
+    return unused_mats
+
+
+def frozen(mesh):
+    if mesh.type == "MESH":
+        if (
+            not all(vec == 1 for vec in mesh.scale)
+            or not all(vec == 0 for vec in mesh.rotation_euler)
+            or not all(vec == 0 for vec in mesh.location)
+        ):
+            return False
+
+    return True
+
+
+def apply_meshpoint_transforms(mesh):
+    transforms = []
+    if len(mesh.children) >= 1:
+        for empty in mesh.children:
+            if empty is None and not empty.type == "EMPTY":
+                continue
+            transforms.append(empty.matrix_world.copy())
+            empty.matrix_local = empty.matrix_basis @ MESHPOINT_MATRIX
+    return transforms
+
+
+def apply_transforms(mesh):
+    if not frozen(mesh):
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+
+def get_materials(mesh):
+    materials = []
+    if mesh.type == "MESH":
+        for material in mesh.data.materials:
+            if material is not None:
+                materials.append(material.name.lower())
+        if len(materials) == 0:
+            return mesh.name
+    return materials
+
+
+def get_avaliable_sorted_materials(mesh):
+    materials = get_materials(mesh)
+    unused_mats = get_unused_materials(mesh, materials)
+    return sorted(
+        material for material in set(materials) if material not in unused_mats
+    )
+
+
+def create_and_move_mesh_materials(file_path, mesh):
+    materials = get_materials(mesh)
+    unused_mats = get_unused_materials(mesh, materials)
+    # create new ones
+    for material in (material for material in materials if material not in unused_mats):
+        # skip unused material
+        material_name = f"{material}.mesh_material"
+        mesh_materials_dir = normalize(file_path, "../mesh_materials")
+        mesh_material = os.path.join(mesh_materials_dir, material_name)
+        if os.path.exists(mesh_material):
+            continue
+        with open(os.path.join(file_path, material_name), "w") as f:
+            mesh_material = MeshMaterial(
+                clr=f"{material}_clr",
+                nrm=f"{material}_nrm",
+                msk=f"{material}_msk",
+                orm=f"{material}_orm",
+            ).json()
+            f.write(json.dumps(mesh_material, indent=4))
+            f.close()
+        dest = mesh_materials_dir if os.path.exists(mesh_materials_dir) else file_path
+        rename(path=file_path, dest=dest, filename=material_name)
+
+
+def restore_mesh_transforms(transforms, meshes):
+    for i, mesh in enumerate(meshes):
+        mt, mpt = transforms[i]
+        mesh.matrix_world = mt
+        restore_meshpoint_transforms(children=mesh.children, original=mpt)
+
+
+def restore_meshpoint_transforms(children, original):
+    if children and len(children) >= 1:
+        for i, empty in enumerate(children):
+            empty.matrix_local = original[i]
+
+
+def get_original_transforms(mesh):
+    original_transform = mesh.matrix_world.copy()
+    mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
+    original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
+    return original_transform, original_meshpoint_transforms
+
+
+def join_meshes(meshes):
+    bpy.ops.object.select_all(action="DESELECT")
+    for mesh in sorted(meshes, key=lambda mesh: mesh.name.lower()):
+        mesh.select_set(True)
+    if len(meshes) > 1:
+        bpy.ops.object.join()
+    return bpy.context.view_layer.objects.active
+
+
+def purge_orphans():
+    bpy.ops.outliner.orphans_purge()
+
+
+def make_meshpoint_rules(mesh):
+    invalid_meshpoints = []
+
+    for meshpoint in mesh.children:
+        name = meshpoint.name
+        is_matched = False
+
+        for key, regex in MESHPOINTING_RULES.items():
+            if re.match(regex, name):
+                is_matched = True
+                break
+
+        if not is_matched:
+            invalid_meshpoints.append(name)
+
+    return invalid_meshpoints

@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 DEFAULT_TEMPLATE = {
     "global_settings": {
         "icon_zoom": 3.45,
-        "hdri_path": "",
+        "hdri_path": ""
     },
     "cameras": [
         {

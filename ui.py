@@ -1,65 +1,41 @@
-import bpy, json, os, math, subprocess, re, shutil, time, bmesh, tempfile
+import bpy, json, os, math, subprocess, re, shutil, time, bmesh
 from bpy.props import CollectionProperty
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
-from .src.lib.helpers.material import MeshMaterial
+from .src.lib.helpers.mesh import MeshMaterial
 from . import bl_info, TEMP_TEXTURES_PATH
 from .src.lib.github_downloader import Github
 from .src.lib.binary_reader import BinaryReader
 from .src.lib.helpers.cryptography import generate_hash_from_directory
 from .config import AddonSettings
-from .src.lib.helpers.mesh_utils import get_bounding_box
+from .src.lib.helpers.mesh_utils import (
+    get_bounding_box,
+    get_unused_materials,
+    get_avaliable_sorted_materials,
+    get_materials,
+    apply_transforms,
+    get_original_transforms,
+    create_and_move_mesh_materials,
+    restore_mesh_transforms,
+    join_meshes,
+    purge_orphans,
+    make_meshpoint_rules,
+)
+from .src.lib.helpers.filesystem import normalize
 from .src.lib.render_manager import RenderManager
 from .src.lib.image_processor import IconProcessor
-
-TEMP_DIR = tempfile.gettempdir()
-MESHPOINT_COLOR = (0.18039216101169586, 0.7686275243759155, 1.0)
-
-ADDON_SETTINGS_FILE = os.path.join(
-    os.environ["LOCALAPPDATA"], "sins2", "sins2-blender-extension", "settings.json"
+from .src.lib.helpers.constants import (
+    ADDON_SETTINGS_FILE,
+    GAME_MATRIX,
+    CWD_PATH,
+    MESHBUILDER_EXE,
+    MESHPOINT_COLOR,
+    MESHPOINT_MATRIX,
+    MESHPOINTING_RULES,
+    TEMP_DIR,
+    TEXCONV_EXE,
 )
-CWD_PATH = os.path.dirname(os.path.abspath(__file__))
-MESHBUILDER_EXE = os.path.join(
-    CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
-)
-TEXCONV_EXE = os.path.join(CWD_PATH, "src", "lib", "tools", "texconv", "texconv.exe")
-
-GAME_MATRIX = Matrix(((-1, 0, 0, 0), (0, 0, 1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
-MESHPOINT_MATRIX = Matrix(((-1, 0, 0, 0), (0, 1, 0, 0), (0, 0, -1, 0), (0, 0, 0, 1)))
-
-DUPLICATION_POSTFIX = r"(\-\d+)?"
-MESHPOINTING_RULES = {
-    "ability": rf"^ability(\.\d*)?{DUPLICATION_POSTFIX}$",
-    "child": rf"^child\.(\w*)\.?(\d+)?{DUPLICATION_POSTFIX}$",
-    "weapon": rf"^weapon\.\w+(\.\d+|\.\w+)?{DUPLICATION_POSTFIX}$",
-    "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
-    "bomb": rf"^bomb(\.\d+)?{DUPLICATION_POSTFIX}$",
-    "exhaust": rf"^exhaust(\.\d*)?{DUPLICATION_POSTFIX}$",
-    "aura": r"^aura$",
-    "center": r"^center$",
-    "above": r"^above$",
-    "turret_muzzle": rf"^turret_muzzle(\.\d+)?{DUPLICATION_POSTFIX}$",
-    "flair": rf"^flair(\.\w+)(\.?\d+)?{DUPLICATION_POSTFIX}$",
-    "ship_build": r"^ship_build$",
-    "extractor": r"^extractor$",
-    # ---------------------------- from 2022  ---------------------------- #
-    # - `exhaust` // ship exhaust effects                                  #
-    # - `bomb` // planet bombing points                                    #
-    # - `above` // for effects above                                       #
-    # - `aura` // aura effects                                             #
-    # - `center` // effects from center                                    #
-    # - `extractor` // asteroid resource extractor attachment point        #
-    # - `hangar` // strikecraft hangar position                            #
-    # - `ship_build` // ship build effects                                 #
-    # - `atmosphere_entry` // atmosphere entry effects                     # <-- no references?
-    # - `build` // build effects                                           # <-- only sins 1 meshes reference this?
-    # - `flair` // flair effects                                           #
-    # - `ability` // ability effects                                       #
-    # - `weapon`                                                           #
-    # - `child`                                                            #
-    # - `turret_muzzle`                                                    #
-}
 
 github = Github(TEMP_DIR)
 
@@ -90,18 +66,18 @@ class SINSII_Main_Panel:
 
 
 class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Export"
+    bl_label = "Import/Export"
     bl_order = 1
 
     def draw(self, context):
+        row = self.layout.row(align=True)
+        row.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
+        row.separator(factor=0.5)
+        row.operator("sinsii.import_mesh", icon="LOOP_BACK", text="Import mesh")
         col = self.layout.column(align=True)
-        col.separator(factor=0.5)
-        col.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
-        # col.separator(factor=1.5)
+        # col.separator(factor=1.0)
         # col.operator("sinsii.debug")
-        col.separator(factor=0.5)
         box = col.box()
-        box.operator("sinsii.import_mesh", icon="LOOP_FORWARDS", text="Import mesh")
         if context.scene.mesh_properties.toggle_teamcolor:
             box.label(text="Primary, Secondary, Emissive")
             row = box.row()
@@ -769,11 +745,6 @@ class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
-def apply_transforms(mesh):
-    if not frozen(mesh):
-        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-
-
 class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
     bl_idname = "sinsii.spawn_meshpoint"
     bl_label = "Spawn meshpoint"
@@ -804,24 +775,6 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         bpy.ops.view3d.snap_cursor_to_center()
 
         return {"FINISHED"}
-
-
-def make_meshpoint_rules(mesh):
-    invalid_meshpoints = []
-
-    for meshpoint in mesh.children:
-        name = meshpoint.name
-        is_matched = False
-
-        for key, regex in MESHPOINTING_RULES.items():
-            if re.match(regex, name):
-                is_matched = True
-                break
-
-        if not is_matched:
-            invalid_meshpoints.append(name)
-
-    return invalid_meshpoints
 
 
 def get_file_list(directory):
@@ -954,58 +907,6 @@ def run_meshbuilder(file_path, dest_path):
         return e.stderr
 
 
-def get_materials(mesh):
-    materials = []
-    if mesh.type == "MESH":
-        for material in mesh.data.materials:
-            if material is not None:
-                materials.append(material.name.lower())
-        if len(materials) == 0:
-            return mesh.name
-    return materials
-
-
-def create_and_move_mesh_materials(file_path, mesh):
-    materials = get_materials(mesh)
-    unused_mats = get_unused_materials(mesh, materials)
-    # create new ones
-    for material in (material for material in materials if material not in unused_mats):
-        # skip unused material
-        material_name = f"{material}.mesh_material"
-        mesh_materials_dir = normalize(file_path, "../mesh_materials")
-        mesh_material = os.path.join(mesh_materials_dir, material_name)
-        if os.path.exists(mesh_material):
-            continue
-        with open(os.path.join(file_path, material_name), "w") as f:
-            mesh_material = MeshMaterial(
-                clr=f"{material}_clr",
-                nrm=f"{material}_nrm",
-                msk=f"{material}_msk",
-                orm=f"{material}_orm",
-            ).json()
-            f.write(json.dumps(mesh_material, indent=4))
-            f.close()
-        dest = mesh_materials_dir if os.path.exists(mesh_materials_dir) else file_path
-        rename(path=file_path, dest=dest, filename=material_name)
-
-
-def apply_meshpoint_transforms(mesh):
-    transforms = []
-    if len(mesh.children) >= 1:
-        for empty in mesh.children:
-            if empty is None and not empty.type == "EMPTY":
-                continue
-            transforms.append(empty.matrix_world.copy())
-            empty.matrix_local = empty.matrix_basis @ MESHPOINT_MATRIX
-    return transforms
-
-
-def restore_meshpoint_transforms(children, original):
-    if children and len(children) >= 1:
-        for i, empty in enumerate(children):
-            empty.matrix_local = original[i]
-
-
 def clear_leftovers(export_dir, mesh_name):
     for leftover in os.listdir(export_dir):
         if any(e for e in [".mesh_material", ".bin", ".gltf"] if leftover.endswith(e)):
@@ -1013,18 +914,6 @@ def clear_leftovers(export_dir, mesh_name):
                 os.remove(os.path.join(export_dir, leftover))
             except:
                 raise Exception(f"Could not remove: {leftover}")
-
-
-def normalize(file_path, args):
-    return os.path.normpath(os.path.join(file_path, args))
-
-
-def rename(path, dest, filename):
-    os.replace(os.path.join(path, filename), os.path.join(dest, filename))
-
-
-def purge_orphans():
-    bpy.ops.outliner.orphans_purge()
 
 
 class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
@@ -1056,18 +945,6 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         # purge_orphans()
 
         return {"FINISHED"}
-
-
-def get_unused_materials(mesh, materials):
-    unused_mats = []
-    for i, mat in enumerate(materials):
-        tris = []
-        for tri in mesh.data.polygons:
-            if tri.material_index == i:
-                tris.append(tri.material_index)
-        if len(tris) == 0:
-            unused_mats.append(mat)
-    return unused_mats
 
 
 def load_mesh_data(self, mesh_data, mesh_name, mesh):
@@ -1245,33 +1122,6 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
         return {"FINISHED"}
 
 
-def original_transforms(mesh):
-    original_transform = mesh.matrix_world.copy()
-    mesh.matrix_world = GAME_MATRIX @ mesh.matrix_world
-    original_meshpoint_transforms = apply_meshpoint_transforms(mesh=mesh)
-    return original_transform, original_meshpoint_transforms
-
-
-def frozen(mesh):
-    if mesh.type == "MESH":
-        if (
-            not all(vec == 1 for vec in mesh.scale)
-            or not all(vec == 0 for vec in mesh.rotation_euler)
-            or not all(vec == 0 for vec in mesh.location)
-        ):
-            return False
-
-    return True
-
-
-def get_avaliable_sorted_materials(mesh):
-    materials = get_materials(mesh)
-    unused_mats = get_unused_materials(mesh, materials)
-    return sorted(
-        material for material in set(materials) if material not in unused_mats
-    )
-
-
 def clean_gltf_document(file_path):
     with open(f"{file_path}.gltf", "r+") as f:
         gltf_document = json.load(f)
@@ -1285,13 +1135,6 @@ def clean_gltf_document(file_path):
         f.truncate()
 
 
-def restore_mesh_transforms(transforms, meshes):
-    for i, mesh in enumerate(meshes):
-        mt, mpt = transforms[i]
-        mesh.matrix_world = mt
-        restore_meshpoint_transforms(children=mesh.children, original=mpt)
-
-
 def export_gltf_document(file_path):
     bpy.ops.export_scene.gltf(
         filepath=file_path,
@@ -1302,15 +1145,6 @@ def export_gltf_document(file_path):
         export_image_format="NONE",
     )
     clean_gltf_document(file_path)
-
-
-def join_meshes(meshes):
-    bpy.ops.object.select_all(action="DESELECT")
-    for mesh in sorted(meshes, key=lambda mesh: mesh.name.lower()):
-        mesh.select_set(True)
-    if len(meshes) > 1:
-        bpy.ops.object.join()
-    return bpy.context.view_layer.objects.active
 
 
 def export_mesh(self, mesh_name, export_dir):
@@ -1351,7 +1185,9 @@ def export_mesh(self, mesh_name, export_dir):
 
     for mesh in meshes:
         apply_transforms(mesh)
-        original_transform, original_meshpoint_transforms = original_transforms(mesh)
+        original_transform, original_meshpoint_transforms = get_original_transforms(
+            mesh
+        )
         original_transforms_arr.append(
             (original_transform, original_meshpoint_transforms)
         )
@@ -1519,38 +1355,17 @@ def load_texture(node, texture):
 
 def load_mesh_material(name, filepath, textures_path):
     mesh_material = os.path.join(filepath, f"{name}.mesh_material")
-
     # If no mesh_material file exists, look for textures in game directory
     if not os.path.exists(mesh_material):
-        # Get game directory from mesh path (up 1 level from meshes folder)
-        game_dir = os.path.normpath(os.path.join(filepath, ".."))
-        textures_dir = os.path.join(game_dir, "textures")
-
-        if os.path.exists(textures_dir):
-            texture_base = os.path.join(textures_dir, name)
+        if os.path.exists(textures_path):
+            texture_base = os.path.join(textures_path, name)
             return [
-                (
-                    f"{texture_base}_clr.dds"
-                    if os.path.exists(f"{texture_base}_clr.dds")
-                    else ""
-                ),
-                (
-                    f"{texture_base}_orm.dds"
-                    if os.path.exists(f"{texture_base}_orm.dds")
-                    else ""
-                ),
-                (
-                    f"{texture_base}_msk.dds"
-                    if os.path.exists(f"{texture_base}_msk.dds")
-                    else ""
-                ),
-                (
-                    f"{texture_base}_nrm.dds"
-                    if os.path.exists(f"{texture_base}_nrm.dds")
-                    else ""
-                ),
+                f"{texture_base}_{tex_map}.dds"
+                for tex_map in ["clr", "orm", "msk", "nrm"]
+                if os.path.exists(f"{texture_base}_{tex_map}.dds")
             ]
-        return ["", "", "", ""]
+        else:
+            return ["", "", "", ""]
 
     contents = json.load(open(mesh_material, "r"))
     return [
