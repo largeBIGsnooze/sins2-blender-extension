@@ -2,17 +2,14 @@ bl_info = {
     "name": "Sins II Extension",
     "description": "Extension for importing and exporting Sins of a Solar Empire 2 meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (0, 9, 3),
+    "version": (0, 9, 4),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",
 }
 
-import bpy, os, tempfile
-
-TEMP_TEXTURES_PATH = os.path.join(
-    tempfile.gettempdir(), "sins2-blender-extension.tmp.textures.dir"
-)
+import bpy, os
+from .src.lib.helpers.constants import TEMP_TEXTURES_PATH
 
 
 # clear cached textures
