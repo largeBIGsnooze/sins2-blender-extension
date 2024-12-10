@@ -28,7 +28,6 @@ from .src.lib.image_processor import IconProcessor
 from .src.lib.helpers.constants import (
     ADDON_SETTINGS_FILE,
     GAME_MATRIX,
-    CWD_PATH,
     MESHBUILDER_EXE,
     MESHPOINT_COLOR,
     MESHPOINT_MATRIX,
@@ -806,21 +805,22 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
     bl_label = "Check for updates"
 
     def execute(self, context):
+        cwd_path = os.path.dirname(os.path.abspath(__file__))
         temp_path = github.temp
         github.fetch_latest_archive()
 
-        current_files = set(get_file_list(CWD_PATH))
+        current_files = set(get_file_list(cwd_path))
         temp_files = set(get_file_list(temp_path))
 
         for file in current_files.difference(temp_files):
-            file_path = os.path.join(CWD_PATH, file)
+            file_path = os.path.join(cwd_path, file)
             if os.path.isdir(file_path):
                 shutil.rmtree(file_path)
             else:
                 os.remove(file_path)
 
         curr_hash = generate_hash_from_directory(
-            directory=CWD_PATH, file_list=get_file_list(CWD_PATH)
+            directory=cwd_path, file_list=get_file_list(cwd_path)
         )
 
         repo_hash = generate_hash_from_directory(
@@ -831,16 +831,16 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             shutil.rmtree(temp_path)
             self.report({"INFO"}, "No updates found.")
         else:
-            os.makedirs(os.path.join(CWD_PATH, "src"), exist_ok=True)
+            os.makedirs(os.path.join(cwd_path, "src"), exist_ok=True)
             for file in os.listdir(temp_path):
                 if os.path.isdir(os.path.join(temp_path, file)):
                     shutil.copytree(
                         os.path.join(temp_path, file),
-                        os.path.join(CWD_PATH, "src"),
+                        os.path.join(cwd_path, "src"),
                         dirs_exist_ok=True,
                     )
                 else:
-                    shutil.copy(os.path.join(temp_path, file), CWD_PATH)
+                    shutil.copy(os.path.join(temp_path, file), cwd_path)
             shutil.rmtree(temp_path)
 
             SETTINGS["current_version"] = latest_version
