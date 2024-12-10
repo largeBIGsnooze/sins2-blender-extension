@@ -19,7 +19,6 @@ class TemplateManager:
             "global_settings": {
                 "icon_zoom": props.icon_zoom,
                 "hdri_path": props.hdri_path,
-                "hdri_strength": props.hdri_strength,
             },
             "cameras": [],
         }
