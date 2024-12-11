@@ -1,6 +1,7 @@
 from mathutils import Vector
 from .constants import GAME_MATRIX, MESHPOINT_MATRIX, MESHPOINTING_RULES
 from .filesystem import normalize, rename
+from .mesh import MeshMaterial
 import bpy, os, json, re
 
 
