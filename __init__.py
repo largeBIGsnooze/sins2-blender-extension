@@ -2,14 +2,14 @@ bl_info = {
     "name": "Sins II Extension",
     "description": "Extension for importing and exporting Sins of a Solar Empire 2 meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (0, 9, 6),
+    "version": (0, 9, 7),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",
 }
 
 import bpy, os
-from .src.lib.helpers.constants import TEMP_TEXTURES_PATH
+from .constants import TEMP_TEXTURES_PATH
 
 
 # clear cached textures

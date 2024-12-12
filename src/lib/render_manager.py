@@ -2,7 +2,7 @@ import bpy
 import os
 import math
 from mathutils import Vector, Euler
-from .helpers.mesh_utils import get_bounding_box, GAME_MATRIX
+from .helpers.mesh_utils import get_bounding_box
 
 
 class RenderManager:

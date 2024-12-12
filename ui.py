@@ -25,7 +25,7 @@ from .src.lib.helpers.mesh_utils import (
 from .src.lib.helpers.filesystem import normalize
 from .src.lib.render_manager import RenderManager
 from .src.lib.image_processor import IconProcessor
-from .src.lib.helpers.constants import (
+from .constants import (
     ADDON_SETTINGS_FILE,
     GAME_MATRIX,
     MESHBUILDER_EXE,

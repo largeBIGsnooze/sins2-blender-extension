@@ -11,10 +11,9 @@ ADDON_SETTINGS_FILE = os.path.join(
     os.environ["LOCALAPPDATA"], "sins2", "sins2-blender-extension", "settings.json"
 )
 
-
 TEMP_TEXTURES_PATH = os.path.join(TEMP_DIR, "sins2-blender-extension.tmp.textures.dir")
 
-CWD_PATH = os.path.dirname(os.path.abspath(__name__))
+CWD_PATH = os.path.dirname(os.path.abspath(__file__))
 MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
 )
