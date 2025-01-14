@@ -947,6 +947,32 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# delete and force blender to recalculate edge connections to fix CTD on bad polygons
+def clean_degenerate_polygons(obj, faces):
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+
+    bm_edit = bmesh.from_edit_mesh(obj.data)
+    bm_edit.faces.ensure_lookup_table()
+
+    for i in faces:
+        bm_edit.faces[i].select = True
+
+    bpy.ops.mesh.separate(type="SELECTED")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    degenerate_obj = next(
+        (
+            _obj
+            for _obj in bpy.data.objects
+            if _obj.type == "MESH" and _obj.name.startswith(f"{obj.name}.001")
+        ),
+        None,
+    )
+    bpy.data.objects.remove(degenerate_obj, do_unlink=True)
+
+
 def load_mesh_data(self, mesh_data, mesh_name, mesh):
     primitives = mesh_data["primitives"]
     materials = mesh_data["materials"]
@@ -993,7 +1019,11 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
     bm = bmesh.new()
     bm.from_mesh(mesh)
 
-    for face in bm.faces:
+    degenerate_faces = []
+    for idx, face in enumerate(bm.faces):
+        if face.calc_area() <= 1e-5:
+            degenerate_faces.append(idx)
+            continue
         for loop in face.loops:
             loop[bm.loops.layers.uv["uv0"]].uv = uv_coords["uv0"][loop.vert.index]
             if uv_coords["uv1"]:
@@ -1053,6 +1083,9 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
                 )
             ).to_4x4()
         ).to_euler()
+
+    if len(degenerate_faces) > 0:
+        clean_degenerate_polygons(obj, degenerate_faces)
 
     flip_normals(obj)
 
@@ -1360,12 +1393,14 @@ def load_mesh_material(name, filepath, textures_path):
         if os.path.exists(textures_path):
             texture_base = os.path.join(textures_path, name)
             return [
-                f"{texture_base}_{tex_map}.dds"
+                (
+                    f"{texture_base}_{tex_map}.dds"
+                    if os.path.exists(f"{texture_base}_{tex_map}.dds")
+                    else ""
+                )
                 for tex_map in ["clr", "orm", "msk", "nrm"]
-                if os.path.exists(f"{texture_base}_{tex_map}.dds")
             ]
-        else:
-            return ["", "", "", ""]
+        return ["", "", "", ""]
 
     contents = json.load(open(mesh_material, "r"))
     return [
