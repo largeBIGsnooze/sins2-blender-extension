@@ -2,7 +2,7 @@ bl_info = {
     "name": "Sins II Extension",
     "description": "Extension for importing and exporting Sins of a Solar Empire 2 meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (0, 9, 7),
+    "version": (0, 9, 8),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",
@@ -25,7 +25,7 @@ def register():
 
     ui.register()
     properties.register()
-    clear_temp_textures()
+    # clear_temp_textures()
 
 
 def unregister():
@@ -34,7 +34,7 @@ def unregister():
 
     ui.unregister()
     properties.unregister()
-    clear_temp_textures()
+    # clear_temp_textures()
 
 
 if __name__ == "__main__":
