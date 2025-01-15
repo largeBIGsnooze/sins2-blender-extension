@@ -1372,12 +1372,10 @@ def load_texture(node, texture):
         tex_file = os.path.basename(texture)
         tmp_texture_path = os.path.join(TEMP_TEXTURES_PATH, tex_file)
 
-        if os.path.exists(tmp_texture_path):
-            node.image = bpy.data.images[tex_file]
-        else:
+        if not os.path.exists(tmp_texture_path):
             run_texconv(texture, TEMP_TEXTURES_PATH)
-            image = bpy.data.images.load(tmp_texture_path)
-            node.image = image
+
+        node.image = bpy.data.images[tex_file] or bpy.data.images.load(tmp_texture_path)
     except:
         image = bpy.ops.image.new(name=node.label, width=1, height=1)
         node.image = bpy.data.images[node.label]
