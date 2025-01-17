@@ -26,6 +26,7 @@ from .src.lib.helpers.filesystem import normalize
 from .src.lib.render_manager import RenderManager
 from .src.lib.image_processor import IconProcessor
 from .constants import (
+    CWD_PATH,
     ADDON_SETTINGS_FILE,
     GAME_MATRIX,
     MESHBUILDER_EXE,
@@ -70,9 +71,9 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         row = self.layout.row(align=True)
-        row.operator("sinsii.export_mesh", icon="MESH_CUBE", text="Export mesh")
+        row.operator("sinsii.export_mesh", icon="EXPORT", text="Export mesh")
         row.separator(factor=0.5)
-        row.operator("sinsii.import_mesh", icon="LOOP_BACK", text="Import mesh")
+        row.operator("sinsii.import_mesh", icon="IMPORT", text="Import mesh")
         col = self.layout.column(align=True)
         # col.separator(factor=1.0)
         # col.operator("sinsii.debug")
@@ -805,22 +806,21 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
     bl_label = "Check for updates"
 
     def execute(self, context):
-        cwd_path = os.path.dirname(os.path.abspath(__file__))
         temp_path = github.temp
         github.fetch_latest_archive()
 
-        current_files = set(get_file_list(cwd_path))
+        current_files = set(get_file_list(CWD_PATH))
         temp_files = set(get_file_list(temp_path))
 
         for file in current_files.difference(temp_files):
-            file_path = os.path.join(cwd_path, file)
+            file_path = os.path.join(CWD_PATH, file)
             if os.path.isdir(file_path):
                 shutil.rmtree(file_path)
             else:
                 os.remove(file_path)
 
         curr_hash = generate_hash_from_directory(
-            directory=cwd_path, file_list=get_file_list(cwd_path)
+            directory=CWD_PATH, file_list=get_file_list(CWD_PATH)
         )
 
         repo_hash = generate_hash_from_directory(
@@ -831,16 +831,16 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             shutil.rmtree(temp_path)
             self.report({"INFO"}, "No updates found.")
         else:
-            os.makedirs(os.path.join(cwd_path, "src"), exist_ok=True)
+            os.makedirs(os.path.join(CWD_PATH, "src"), exist_ok=True)
             for file in os.listdir(temp_path):
                 if os.path.isdir(os.path.join(temp_path, file)):
                     shutil.copytree(
                         os.path.join(temp_path, file),
-                        os.path.join(cwd_path, "src"),
+                        os.path.join(CWD_PATH, "src"),
                         dirs_exist_ok=True,
                     )
                 else:
-                    shutil.copy(os.path.join(temp_path, file), cwd_path)
+                    shutil.copy(os.path.join(temp_path, file), CWD_PATH)
             shutil.rmtree(temp_path)
 
             SETTINGS["current_version"] = latest_version
@@ -1020,9 +1020,9 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
     bm.from_mesh(mesh)
 
     degenerate_faces = []
-    for idx, face in enumerate(bm.faces):
-        if face.calc_area() <= 1e-5:
-            degenerate_faces.append(idx)
+    for face in bm.faces:
+        if face.calc_area() <= 1e-99:
+            degenerate_faces.append(face.index)
             continue
         for loop in face.loops:
             loop[bm.loops.layers.uv["uv0"]].uv = uv_coords["uv0"][loop.vert.index]
@@ -1378,8 +1378,7 @@ def load_texture(node, texture):
             node.image = bpy.data.images.load(tmp_texture_path)
         node.image = bpy.data.images[tex_file]
     except:
-        image = bpy.ops.image.new(name=node.label, width=1, height=1)
-        node.image = bpy.data.images[node.label]
+        node.image = bpy.data.images.load(os.path.join(CWD_PATH, "texture_error.png"))
 
     if node.image and node.label != "_clr":
         node.image.colorspace_settings.name = "Non-Color"
