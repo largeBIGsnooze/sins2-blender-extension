@@ -56,6 +56,6 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 - **HDRi Strength**: Environment lighting intensity and background image if solid
 
 ## Credits
-- Stardock and Ironclad for `Meshbuilder.exe` from their modding tools repository
+- Stardock and Ironclad for `Meshbuilder.exe` and `ConvertData_Rebellion.exe` from their modding tools repository
 
 https://github.com/StardockCorp/sins2modtools
