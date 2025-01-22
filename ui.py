@@ -1119,17 +1119,21 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
         os.makedirs(TEMP_TEXTURES_PATH, exist_ok=True)
         radius_arr = []
         offset = 0
-        for i, file in enumerate(self.files):
-            mesh, radius = import_mesh(
-                self, os.path.join(os.path.dirname(self.filepath), file.name)
-            )
-            radius_arr.append(radius)
-            if i > 0:
-                offset += radius_arr[i - 1] + radius_arr[i]
 
-            mesh.location = (offset, 0, 0)
+        try:
+            for i, file in enumerate(self.files):
+                mesh, radius = import_mesh(
+                    self, os.path.join(os.path.dirname(self.filepath), file.name)
+                )
+                radius_arr.append(radius)
+                if i > 0:
+                    offset += radius_arr[i - 1] + radius_arr[i]
 
-        self.report({"INFO"}, f"Imported meshes: {[file.name for file in self.files]}")
+                mesh.location = (offset, 0, 0)
+            self.report({"INFO"}, f"Imported meshes: {[file.name for file in self.files]}")
+        except:
+            pass
+
         return {"FINISHED"}
 
 
@@ -1219,7 +1223,7 @@ def export_mesh(self, mesh_name, export_dir):
 
     mesh = join_meshes(meshes)
 
-    if meshbuilder_err and not meshbuilder_err.strip().endswith("not found"):
+    if meshbuilder_err:
         self.report({"ERROR"}, meshbuilder_err)
         clear_leftovers(export_dir, mesh_name)
         return

@@ -199,7 +199,8 @@ def run_meshbuilder(file_path, dest_path):
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
-        return e.stderr
+        if not str(e.stderr).strip().endswith("not found"):
+            return e.stderr
 
 
 def run_texconv(texture, temp_dir):

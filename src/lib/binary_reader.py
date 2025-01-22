@@ -122,7 +122,7 @@ class BinaryReader:
 
         with open(mesh_file, "tr") as f:
             try:
-                if f.readable() and "TXT2" in f.readline():
+                if f.readable() and "TXT" in f.readline():
                     convert_rebellion_mesh(mesh_file, mesh_file, "bin")
             except:
                 pass
@@ -134,9 +134,9 @@ class BinaryReader:
         header = reader.string(4)  # header
 
         # handle sins 1 meshes
-        if header == "BIN2":
-            if                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 not "Sins of a Solar Empire Rebellion".lower() in normalize(os.path.dirname(mesh_file), "../").lower():
-                raise                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           NotImplementedError("Non-vanilla meshes are not supported")
+        if header.startswith("BIN"):
+            if                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   not "Sins of a Solar Empire Rebellion".lower() in normalize(os.path.dirname(mesh_file), "../").lower():
+                raise                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           NotImplementedError("Non-vanilla meshes are not supported")
 
             rebellion_path = os.path.join(TEMP_TEXTURES_PATH, "rebellion")
             os.makedirs(rebellion_path, exist_ok=True)
@@ -157,7 +157,10 @@ class BinaryReader:
                 f.truncate()
                 f.writelines(lines)
 
-            run_meshbuilder(file_path=dest, dest_path=rebellion_path)
+            meshbuilder_err = run_meshbuilder(file_path=dest, dest_path=rebellion_path)
+
+            if meshbuilder_err:
+                raise ValueError(meshbuilder_err)
 
             os.remove(os.path.join(rebellion_path, dest))
 
