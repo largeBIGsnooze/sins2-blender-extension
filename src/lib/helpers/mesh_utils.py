@@ -1,8 +1,15 @@
 from mathutils import Vector
-from ....constants import GAME_MATRIX, MESHPOINT_MATRIX, MESHPOINTING_RULES
+from ....constants import (
+    GAME_MATRIX,
+    MESHPOINT_MATRIX,
+    MESHPOINTING_RULES,
+    MESHBUILDER_EXE,
+    REBELLION_MESHBUILDER_EXE,
+    TEXCONV_EXE,
+)
 from .filesystem import normalize, rename
 from .mesh import MeshMaterial
-import bpy, os, json, re
+import bpy, os, json, re, subprocess
 
 
 def get_bounding_box(mesh):
@@ -171,3 +178,31 @@ def make_meshpoint_rules(mesh):
             invalid_meshpoints.append(name)
 
     return invalid_meshpoints
+
+
+def convert_rebellion_mesh(file_path, dest_path):
+    subprocess.run([REBELLION_MESHBUILDER_EXE, "mesh", file_path, dest_path, "txt"])
+
+
+def run_meshbuilder(file_path, dest_path):
+    try:
+        result = subprocess.run(
+            [
+                MESHBUILDER_EXE,
+                f"--input_path={file_path}",
+                f"--output_folder_path={dest_path}",
+                "--mesh_output_format=binary",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        return e.stderr
+
+
+def run_texconv(texture, temp_dir):
+    subprocess.run(
+        [TEXCONV_EXE, "-m", "1", "-y", "-f", "BC7_UNORM", "-r", texture, "-o", temp_dir]
+    )

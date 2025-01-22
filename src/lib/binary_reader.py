@@ -1,6 +1,9 @@
 from struct import pack, unpack
-import json, os
+import json, os, shutil, re
 from .helpers.mesh import Meshpoint, Primitive, Vertex
+from .helpers.mesh_utils import run_meshbuilder, convert_rebellion_mesh
+from .helpers.filesystem import basename, normalize
+from ...constants import TEMP_TEXTURES_PATH
 
 
 class BinaryReader:
@@ -116,10 +119,42 @@ class BinaryReader:
     @staticmethod
     def initialize_from(mesh_file):
         reader = BinaryReader()
+
         with open(mesh_file, "rb") as f:
             buffer = f.read()
+
         reader.buffer = buffer
-        reader.string(4)  # header
+        header = reader.string(4)  # header
+
+        if header == "BIN2":  # handle sins 1 meshes
+
+            rebellion_path = os.path.join(TEMP_TEXTURES_PATH, "rebellion")
+            os.makedirs(rebellion_path, exist_ok=True)
+
+            dest = os.path.join(rebellion_path, f"{basename(mesh_file)}.sins1_mesh")
+
+            shutil.copy(mesh_file, dest)
+            convert_rebellion_mesh(mesh_file, dest)
+
+            with open(dest, "r+") as f:
+                lines = f.readlines()
+
+                # temp solution to a bug ironclad needs to fix:
+                # - meshbuilder doesn't recognize the archive line in sins 1 meshes
+                if len(lines) > 1 and lines[1].startswith("SinsArchiveVersion"):
+                    lines.pop(1)
+                f.seek(0)
+                f.truncate()
+                f.writelines(lines)
+
+            run_meshbuilder(file_path=dest, dest_path=rebellion_path)
+
+            os.remove(os.path.join(rebellion_path, dest))
+
+            return reader.initialize_from(
+                os.path.join(rebellion_path, f"{basename(mesh_file)}.mesh")
+            )
+
         reader.boolean()  # is_skinned
         reader.bounding_box()
         reader.bounding_sphere()

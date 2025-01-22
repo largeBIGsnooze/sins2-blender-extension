@@ -17,6 +17,9 @@ CWD_PATH = os.path.dirname(os.path.abspath(__file__))
 MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
 )
+REBELLION_MESHBUILDER_EXE = os.path.join(
+    CWD_PATH, "src", "lib", "tools", "sins1_meshbuilder", "sins1_meshbuilder.exe"
+)
 TEXCONV_EXE = os.path.join(CWD_PATH, "src", "lib", "tools", "texconv", "texconv.exe")
 
 DUPLICATION_POSTFIX = r"(\-\d+)?"

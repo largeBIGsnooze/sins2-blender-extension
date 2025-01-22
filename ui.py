@@ -1,5 +1,4 @@
 import bpy, json, os, math, subprocess, re, shutil, time, bmesh
-from bpy.props import CollectionProperty
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
@@ -21,6 +20,8 @@ from .src.lib.helpers.mesh_utils import (
     join_meshes,
     purge_orphans,
     make_meshpoint_rules,
+    run_meshbuilder,
+    run_texconv,
 )
 from .src.lib.helpers.filesystem import normalize
 from .src.lib.render_manager import RenderManager
@@ -883,30 +884,6 @@ def get_selected_mesh():
         return selected_objects[0]
 
 
-def run_texconv(texture, temp_dir):
-    subprocess.run(
-        [TEXCONV_EXE, "-m", "1", "-y", "-f", "BC7_UNORM", "-r", texture, "-o", temp_dir]
-    )
-
-
-def run_meshbuilder(file_path, dest_path):
-    try:
-        result = subprocess.run(
-            [
-                MESHBUILDER_EXE,
-                f"--input_path={file_path}",
-                f"--output_folder_path={dest_path}",
-                "--mesh_output_format=binary",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        return e.stderr
-
-
 def clear_leftovers(export_dir, mesh_name):
     for leftover in os.listdir(export_dir):
         if any(e for e in [".mesh_material", ".bin", ".gltf"] if leftover.endswith(e)):
@@ -1097,6 +1074,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
 def import_mesh(self, file_path):
     mesh_name = file_path.rsplit("\\", 1)[1].split(".mesh")[0]
     mesh = bpy.data.meshes.new(name=mesh_name)
+    print("Loading: ", mesh_name)
     try:
 
         #  _____ _____ _   _  _____     _____
@@ -1116,7 +1094,7 @@ def import_mesh(self, file_path):
             create_composite_nodes()
 
     except Exception as e:
-        self.report({"ERROR"}, f"Mesh import failed.: {e}")
+        self.report({"ERROR"}, f"Mesh import failed: {e}")
         return {"CANCELLED"}
 
     return load_mesh_data(self, reader.mesh_data, mesh_name, mesh)
@@ -1131,7 +1109,7 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
     filename_ext = ".mesh"
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
 
-    files: CollectionProperty(type=bpy.types.PropertyGroup)
+    files: bpy.props.CollectionProperty(type=bpy.types.PropertyGroup)
 
     @classmethod
     def poll(cls, context):
