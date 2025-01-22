@@ -180,8 +180,8 @@ def make_meshpoint_rules(mesh):
     return invalid_meshpoints
 
 
-def convert_rebellion_mesh(file_path, dest_path):
-    subprocess.run([REBELLION_MESHBUILDER_EXE, "mesh", file_path, dest_path, "txt"])
+def convert_rebellion_mesh(file_path, dest_path, mode):
+    subprocess.run([REBELLION_MESHBUILDER_EXE, "mesh", file_path, dest_path, mode])
 
 
 def run_meshbuilder(file_path, dest_path):

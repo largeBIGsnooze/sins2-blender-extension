@@ -120,13 +120,23 @@ class BinaryReader:
     def initialize_from(mesh_file):
         reader = BinaryReader()
 
+        with open(mesh_file, "tr") as f:
+            try:
+                if f.readable() and "TXT2" in f.readline():
+                    convert_rebellion_mesh(mesh_file, mesh_file, "bin")
+            except:
+                pass
+
         with open(mesh_file, "rb") as f:
             buffer = f.read()
 
         reader.buffer = buffer
         header = reader.string(4)  # header
 
-        if header == "BIN2":  # handle sins 1 meshes
+        # handle sins 1 meshes
+        if header == "BIN2":
+            if                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 not "Sins of a Solar Empire Rebellion".lower() in normalize(os.path.dirname(mesh_file), "../").lower():
+                raise                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           NotImplementedError("Non-vanilla meshes are not supported")
 
             rebellion_path = os.path.join(TEMP_TEXTURES_PATH, "rebellion")
             os.makedirs(rebellion_path, exist_ok=True)
@@ -134,7 +144,7 @@ class BinaryReader:
             dest = os.path.join(rebellion_path, f"{basename(mesh_file)}.sins1_mesh")
 
             shutil.copy(mesh_file, dest)
-            convert_rebellion_mesh(mesh_file, dest)
+            convert_rebellion_mesh(mesh_file, dest, "txt")
 
             with open(dest, "r+") as f:
                 lines = f.readlines()
