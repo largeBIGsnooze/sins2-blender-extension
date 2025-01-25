@@ -1253,10 +1253,12 @@ def clean_mesh_binary(reader, export_dir, mesh_name, mesh):
         name_length_offset = curr_offset
         name_length = reader.u32_at_offset(name_length_offset)
 
-        start = 4 + name_length_offset
-        end = start + name_length
         new_name = re.sub("\\b\-\d+\\b", "", meshpoint.name).encode("utf-8")
-        new_buffer[start:end] = pack(f"{len(meshpoint.name)}s", new_name)
+
+        start = 4 + name_length_offset
+        end = start + len(new_name)
+
+        new_buffer[start:end] = pack(f"{len(new_name)}s", new_name)
         curr_offset += 4 + name_length + 50
 
     curr_mat_offset = reader.materials_offset_start
