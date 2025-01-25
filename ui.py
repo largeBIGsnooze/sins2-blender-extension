@@ -22,8 +22,9 @@ from .src.lib.helpers.mesh_utils import (
     make_meshpoint_rules,
     run_meshbuilder,
     run_texconv,
+    convert_rebellion_mesh,
 )
-from .src.lib.helpers.filesystem import normalize
+from .src.lib.helpers.filesystem import normalize, basename
 from .src.lib.render_manager import RenderManager
 from .src.lib.image_processor import IconProcessor
 from .constants import (
@@ -36,6 +37,7 @@ from .constants import (
     MESHPOINTING_RULES,
     TEMP_DIR,
     TEXCONV_EXE,
+    REBELLION_PATH,
 )
 
 github = Github(TEMP_DIR)
@@ -648,14 +650,14 @@ class SINSII_OT_Sync_Empty_Color(bpy.types.Operator):
 
 
 class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Help" if not has_update else "Help ℹ"
+    bl_label = "Help" if not has_update else "Help - ℹ Update Available ℹ"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 5
 
     def draw(self, context):
         col = self.layout.column(align=True)
         col.label(
-            text=f"Version: {'.'.join(map(str, bl_info['version']))} {'' if not has_update else '- new version avaliable.'}"
+            text=f"Version: {'.'.join(map(str, bl_info['version']))} {'- up to date' if not has_update else '- new version avaliable.'}"
         )
         col.separator(factor=1.0)
         col.operator(
@@ -925,7 +927,7 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
 
 
 # delete and force blender to recalculate edge connections to fix CTD on bad polygons
-def clean_degenerate_polygons(obj, faces):
+def sanitize_degenerate_polygons(obj, faces):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="DESELECT")
@@ -950,7 +952,7 @@ def clean_degenerate_polygons(obj, faces):
     bpy.data.objects.remove(degenerate_obj, do_unlink=True)
 
 
-def load_mesh_data(self, mesh_data, mesh_name, mesh):
+def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
     primitives = mesh_data["primitives"]
     materials = mesh_data["materials"]
     meshpoints = mesh_data["meshpoints"]
@@ -1009,12 +1011,14 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
     bm.to_mesh(mesh)
     bm.free()
 
+    textures_path = normalize(self.filepath, "../../textures")
     for material in materials:
-        mesh_materials_path = normalize(self.filepath, "../../mesh_materials")
-        textures_path = normalize(self.filepath, "../../textures")
-
         if not os.path.exists(mesh_materials_path):
             new_mat = bpy.data.materials.new(name=material)
+        elif mesh_materials_path == REBELLION_PATH:
+            new_mat = create_rebellion_shader_nodes(
+                material, mesh_materials_path, textures_path
+            )
         else:
             new_mat = create_shader_nodes(material, mesh_materials_path, textures_path)
         mesh.materials.append(new_mat)
@@ -1062,13 +1066,32 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh):
         ).to_euler()
 
     if len(degenerate_faces) > 0:
-        clean_degenerate_polygons(obj, degenerate_faces)
+        sanitize_degenerate_polygons(obj, degenerate_faces)
 
     flip_normals(obj)
 
     # purge_orphans()
 
     return obj, radius
+
+
+def is_rebellion_mesh(file_path):
+    with open(file_path, "tr") as txt_file:
+        try:
+            if txt_file.readable() and "TXT" in txt_file.readline():
+                convert_rebellion_mesh(file_path, file_path, "bin")
+        except:
+            pass
+
+    with open(file_path, "rb") as f:
+        header = f.read(4).decode("utf-8")
+        if header.startswith("BIN"):
+            if                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              not "Sins of a Solar Empire Rebellion".lower() in normalize(os.path.dirname(file_path), "../").lower():
+                raise                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 NotImplementedError("Non-vanilla meshes are not supported")
+
+            return True
+
+    return False
 
 
 def import_mesh(self, file_path):
@@ -1084,7 +1107,61 @@ def import_mesh(self, file_path):
         # /\__/ /_| |_| |\  |/\__/ /   ./ /___
         # \____/ \___/\_| \_/\____/    \_____/
 
-        reader = BinaryReader.initialize_from(mesh_file=file_path)
+        # handle sins 1 meshes
+        if not is_rebellion_mesh(file_path):
+            mesh_materials_path = normalize(file_path, "../../mesh_materials")
+            reader = BinaryReader.initialize_from(mesh_file=file_path)
+        else:
+            os.makedirs(REBELLION_PATH, exist_ok=True)
+
+            mesh_materials_path = REBELLION_PATH
+            dest = os.path.join(REBELLION_PATH, f"{basename(file_path)}.sins1_mesh")
+
+            shutil.copy(file_path, dest)
+            convert_rebellion_mesh(file_path, dest, "txt")
+
+            malformed_meshpoints = []
+
+            while True:
+                kind, meshbuilder_err = run_meshbuilder(
+                    file_path=dest, dest_path=REBELLION_PATH
+                )
+                if not meshbuilder_err:
+                    os.remove(dest)
+                    break
+
+                if meshbuilder_err:
+                    if kind == "mesh_point":
+                        with open(dest, "r+") as f:
+                            lines = f.readlines()
+                            for i, line in enumerate(lines):
+                                if re.search(rf'.*"{meshbuilder_err}"', line):
+                                    print(
+                                        f"invalid mesh point: '{meshbuilder_err}', renaming..."
+                                    )
+                                    lines[i] = line.replace(
+                                        meshbuilder_err,
+                                        f"Flair-{meshbuilder_err}-remove_flair_prefix",
+                                    )
+                                    malformed_meshpoints.append(meshbuilder_err)
+                                    break
+                            f.seek(0)
+                            f.truncate()
+                            f.writelines(lines)
+
+                        convert_rebellion_mesh(dest, dest, "txt")
+                    else:
+                        raise ValueError(meshbuilder_err)
+
+            reader = BinaryReader.initialize_from(
+                mesh_file=os.path.join(REBELLION_PATH, f"{basename(file_path)}.mesh")
+            )
+
+            if malformed_meshpoints:
+                self.report(
+                    {"WARNING"},
+                    f"Found malformed meshpoint names: {[meshpoint for meshpoint in malformed_meshpoints]}",
+                )
 
         if bpy.context.space_data.shading.type != "MATERIAL":
             bpy.context.space_data.shading.type = "MATERIAL"
@@ -1097,7 +1174,7 @@ def import_mesh(self, file_path):
         self.report({"ERROR"}, f"Mesh import failed: {e}")
         return {"CANCELLED"}
 
-    return load_mesh_data(self, reader.mesh_data, mesh_name, mesh)
+    return load_mesh_data(self, reader.mesh_data, mesh_name, mesh, mesh_materials_path)
 
 
 class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
@@ -1130,24 +1207,34 @@ class SINSII_OT_Import_Mesh(bpy.types.Operator, ImportHelper):
                     offset += radius_arr[i - 1] + radius_arr[i]
 
                 mesh.location = (offset, 0, 0)
-            self.report({"INFO"}, f"Imported meshes: {[file.name for file in self.files]}")
+            self.report(
+                {"INFO"}, f"Imported meshes: {[file.name for file in self.files]}"
+            )
         except:
             pass
 
         return {"FINISHED"}
 
 
-def clean_gltf_document(file_path):
+def sanitize_gltf_document(file_path):
     with open(f"{file_path}.gltf", "r+") as f:
         gltf_document = json.load(f)
-        for material in gltf_document["materials"]:
-            try:
+        try:
+            for material in gltf_document["materials"]:
                 del material["doubleSided"]
-            except:
-                pass
+        except:
+            pass
         f.seek(0)
         f.write(json.dumps(gltf_document))
         f.truncate()
+
+
+def sanitize_mesh_name(mesh_name):
+    if "-" in mesh_name:
+        mesh_name = mesh_name.replace("-", "_")
+    elif " " in mesh_name:
+        mesh_name = mesh_name.replace(" ", "_")
+    return mesh_name
 
 
 def export_gltf_document(file_path):
@@ -1159,7 +1246,7 @@ def export_gltf_document(file_path):
         export_apply=False,
         export_image_format="NONE",
     )
-    clean_gltf_document(file_path)
+    sanitize_gltf_document(file_path)
 
 
 def export_mesh(self, mesh_name, export_dir):
@@ -1209,31 +1296,28 @@ def export_mesh(self, mesh_name, export_dir):
         for meshpoint in mesh.children:
             meshpoint.select_set(True)
 
-    if "-" in mesh_name:
-        mesh_name = mesh_name.replace("-", "_")
+    mesh_name = sanitize_mesh_name(mesh_name)
 
     full_mesh_path = os.path.join(export_dir, mesh_name)
 
     export_gltf_document(full_mesh_path)
     restore_mesh_transforms(original_transforms_arr, meshes)
 
-    meshbuilder_err = run_meshbuilder(
+    _, meshbuilder_err = run_meshbuilder(
         file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
     )
 
     mesh = join_meshes(meshes)
 
     if meshbuilder_err:
-        self.report({"ERROR"}, meshbuilder_err)
         clear_leftovers(export_dir, mesh_name)
-        return
     else:
         print(meshbuilder_err)
 
     reader = BinaryReader.initialize_from(
         mesh_file=os.path.join(export_dir, f"{mesh_name}.mesh")
     )
-    clean_mesh_binary(reader, export_dir, mesh_name, mesh)
+    sanitize_mesh_binary(reader, export_dir, mesh_name, mesh)
     post_export_operations(export_dir, mesh_name, mesh)
 
     self.report(
@@ -1244,7 +1328,7 @@ def export_mesh(self, mesh_name, export_dir):
     )
 
 
-def clean_mesh_binary(reader, export_dir, mesh_name, mesh):
+def sanitize_mesh_binary(reader, export_dir, mesh_name, mesh):
     curr_offset = reader.meshpoint_offset_start
     new_buffer = bytearray(reader.buffer)
     for meshpoint in mesh.children:
@@ -1387,7 +1471,10 @@ def load_mesh_material(name, filepath, textures_path):
     contents = json.load(open(mesh_material, "r"))
     return [
         (
-            os.path.join(textures_path, f"{contents.get(key)}.dds")
+            os.path.join(
+                textures_path,
+                re.sub(r"(.*?)(\.dds)?$", r"\1", contents.get(key)) + ".dds",
+            )
             if contents.get(key)
             else " "
         )
@@ -1416,6 +1503,30 @@ def create_composite_nodes():
 
         node_tree.links.new(bloom_node.outputs["Image"], composite_node.inputs["Image"])
         node_tree.links.new(render_layers.outputs["Image"], bloom_node.inputs["Image"])
+
+
+def create_rebellion_shader_nodes(material_name, mesh_materials_path, textures_path):
+
+    textures = load_mesh_material(material_name, mesh_materials_path, textures_path)
+
+    material = bpy.data.materials.new(name=material_name)
+    material.use_nodes = True
+    node_id = material.node_tree
+    nodes = material.node_tree.nodes
+
+    principled_node = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
+    set_node_position(principled_node, 0, 0)
+
+    _clr = nodes.new(type="ShaderNodeTexImage")
+    set_node_position(_clr, -16, 0)
+    _clr.label = "_clr"
+    load_texture(_clr, textures[0])
+    _clr.image.alpha_mode = "NONE"
+
+    links = material.node_tree.links
+    links.new(_clr.outputs["Color"], principled_node.inputs["Base Color"])
+
+    return material
 
 
 def create_shader_nodes(material_name, mesh_materials_path, textures_path):

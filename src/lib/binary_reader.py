@@ -120,54 +120,11 @@ class BinaryReader:
     def initialize_from(mesh_file):
         reader = BinaryReader()
 
-        with open(mesh_file, "tr") as f:
-            try:
-                if f.readable() and "TXT" in f.readline():
-                    convert_rebellion_mesh(mesh_file, mesh_file, "bin")
-            except:
-                pass
-
         with open(mesh_file, "rb") as f:
             buffer = f.read()
 
         reader.buffer = buffer
-        header = reader.string(4)  # header
-
-        # handle sins 1 meshes
-        if header.startswith("BIN"):
-            if                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   not "Sins of a Solar Empire Rebellion".lower() in normalize(os.path.dirname(mesh_file), "../").lower():
-                raise                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           NotImplementedError("Non-vanilla meshes are not supported")
-
-            rebellion_path = os.path.join(TEMP_TEXTURES_PATH, "rebellion")
-            os.makedirs(rebellion_path, exist_ok=True)
-
-            dest = os.path.join(rebellion_path, f"{basename(mesh_file)}.sins1_mesh")
-
-            shutil.copy(mesh_file, dest)
-            convert_rebellion_mesh(mesh_file, dest, "txt")
-
-            with open(dest, "r+") as f:
-                lines = f.readlines()
-
-                # temp solution to a bug ironclad needs to fix:
-                # - meshbuilder doesn't recognize the archive line in sins 1 meshes
-                if len(lines) > 1 and lines[1].startswith("SinsArchiveVersion"):
-                    lines.pop(1)
-                f.seek(0)
-                f.truncate()
-                f.writelines(lines)
-
-            meshbuilder_err = run_meshbuilder(file_path=dest, dest_path=rebellion_path)
-
-            if meshbuilder_err:
-                raise ValueError(meshbuilder_err)
-
-            os.remove(os.path.join(rebellion_path, dest))
-
-            return reader.initialize_from(
-                os.path.join(rebellion_path, f"{basename(mesh_file)}.mesh")
-            )
-
+        reader.string(4)  # header
         reader.boolean()  # is_skinned
         reader.bounding_box()
         reader.bounding_sphere()

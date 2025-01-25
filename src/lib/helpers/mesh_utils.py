@@ -196,13 +196,22 @@ def convert_rebellion_mesh(file_path, dest_path, mode):
 
 def run_meshbuilder(file_path, dest_path):
     try:
-        args = [ MESHBUILDER_EXE, f"--input_path={file_path}", f"--output_folder_path={dest_path}", "--mesh_output_format=binary" ]
-        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as f:
+        args = [
+            MESHBUILDER_EXE,
+            f"--input_path={file_path}",
+            f"--output_folder_path={dest_path}",
+            "--mesh_output_format=binary",
+        ]
+        with subprocess.Popen(
+            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        ) as f:
             for line in f.stdout:
                 text = line.strip()
 
                 if re.search(r"Unexpected\smesh\spoint\sname", text):
-                    meshpoint = re.sub(r"Unexpected\smesh\spoint\sname\s\:\s\'(.*)\'", r"\1", text)
+                    meshpoint = re.sub(
+                        r"Unexpected\smesh\spoint\sname\s\:\s\'(.*)\'", r"\1", text
+                    )
                     return "mesh_point", meshpoint
                 elif re.search(r"Attribute\snot\sfound\s\:\sTEXCOORD_\d", text):
                     raise NotImplementedError("The mesh is missing UV Coordinates.")
