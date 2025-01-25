@@ -7,7 +7,7 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 
 ## Features
 - Automatically corrects blender to game coordinates (Y-up, Z-forward)
-- Import/Export to `*.mesh`
+- Import/Export to `*.mesh` (Rebellion meshes are supported)
 
 ## Get started
 
