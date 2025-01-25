@@ -1,4 +1,4 @@
-import bpy, json, os, math, subprocess, re, shutil, time, bmesh
+import bpy, json, os, math, subprocess, re, shutil, time, bmesh, sys
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
@@ -42,10 +42,16 @@ from .constants import (
 
 github = Github(TEMP_DIR)
 
+def is_debugging():
+    return sys.gettrace() is not None
+
 # check for updates when extension activates
-try:
-    latest_version = github.fetch_latest_commit()
-except:
+if not is_debugging():
+    try:
+        latest_version = github.fetch_latest_commit()
+    except:
+        latest_version = None
+else:
     latest_version = None
 
 settings = AddonSettings(ADDON_SETTINGS_FILE)
@@ -58,7 +64,7 @@ if "is_first_installation" in SETTINGS:
     del SETTINGS["is_first_installation"]
     settings.save_settings()
 
-has_update = SETTINGS["current_version"] != latest_version
+has_update = False if is_debugging() else SETTINGS["current_version"] != latest_version
 
 
 class SINSII_Main_Panel:
@@ -807,6 +813,10 @@ class SINSII_OT_Debug(bpy.types.Operator):
 class SINSII_OT_Check_For_Updates(bpy.types.Operator):
     bl_idname = "sinsii.updates"
     bl_label = "Check for updates"
+
+    @classmethod
+    def poll(cls, context):
+        return not is_debugging()
 
     def execute(self, context):
         temp_path = github.temp
