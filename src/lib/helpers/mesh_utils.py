@@ -182,25 +182,37 @@ def make_meshpoint_rules(mesh):
 
 def convert_rebellion_mesh(file_path, dest_path, mode):
     subprocess.run([REBELLION_MESHBUILDER_EXE, "mesh", file_path, dest_path, mode])
+    with open(dest_path, "r+") as f:
+        lines = f.readlines()
+
+        # temp solution to a bug ironclad needs to fix:
+        # - meshbuilder doesn't recognize the archive line in sins 1 meshes
+        if len(lines) > 1 and lines[1].startswith("SinsArchiveVersion"):
+            lines.pop(1)
+        f.seek(0)
+        f.truncate()
+        f.writelines(lines)
 
 
 def run_meshbuilder(file_path, dest_path):
     try:
-        result = subprocess.run(
-            [
-                MESHBUILDER_EXE,
-                f"--input_path={file_path}",
-                f"--output_folder_path={dest_path}",
-                "--mesh_output_format=binary",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout
+        args = [ MESHBUILDER_EXE, f"--input_path={file_path}", f"--output_folder_path={dest_path}", "--mesh_output_format=binary" ]
+        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as f:
+            for line in f.stdout:
+                text = line.strip()
+
+                if re.search(r"Unexpected\smesh\spoint\sname", text):
+                    meshpoint = re.sub(r"Unexpected\smesh\spoint\sname\s\:\s\'(.*)\'", r"\1", text)
+                    return "mesh_point", meshpoint
+                elif re.search(r"Attribute\snot\sfound\s\:\sTEXCOORD_\d", text):
+                    raise NotImplementedError("The mesh is missing UV Coordinates.")
+                elif re.search(r"No\smeshes\sfound\.", text):
+                    raise NotImplementedError(text)
+                print(text)
+        return None, None
     except subprocess.CalledProcessError as e:
         if not str(e.stderr).strip().endswith("not found"):
-            return e.stderr
+            return None, e.stderr
 
 
 def run_texconv(texture, temp_dir):
