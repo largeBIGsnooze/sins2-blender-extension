@@ -17,6 +17,7 @@ CWD_PATH = os.path.dirname(os.path.abspath(__file__))
 MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
 )
+REBELLION_PATH = os.path.join(TEMP_TEXTURES_PATH, "rebellion")
 REBELLION_MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "sins1_meshbuilder", "sins1_meshbuilder.exe"
 )
@@ -24,12 +25,12 @@ TEXCONV_EXE = os.path.join(CWD_PATH, "src", "lib", "tools", "texconv", "texconv.
 
 DUPLICATION_POSTFIX = r"(\-\d+)?"
 MESHPOINTING_RULES = {
-    "ability": rf"^ability(\.\d*)?{DUPLICATION_POSTFIX}$",
+    "ability": rf"^ability(\.\d*{DUPLICATION_POSTFIX})?$",
     "child": rf"^child\.(\w*)\.?(\d+)?{DUPLICATION_POSTFIX}$",
     "weapon": rf"^weapon\.\w+(\.\d+|\.\w+)?{DUPLICATION_POSTFIX}$",
-    "hangar": rf"^hangar(\.\d*)?{DUPLICATION_POSTFIX}$",
-    "bomb": rf"^bomb(\.\d+)?{DUPLICATION_POSTFIX}$",
-    "exhaust": rf"^exhaust(\.\d*)?{DUPLICATION_POSTFIX}$",
+    "hangar": rf"^hangar(\.\d*{DUPLICATION_POSTFIX})?$",
+    "bomb": rf"^bomb(\.\d+{DUPLICATION_POSTFIX})?$",
+    "exhaust": rf"^exhaust(\.\d*{DUPLICATION_POSTFIX})?$",
     "aura": r"^aura$",
     "center": r"^center$",
     "above": r"^above$",
