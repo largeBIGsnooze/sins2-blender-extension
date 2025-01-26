@@ -480,8 +480,6 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
             )
-            col.separator(factor=0.5)
-            col.operator("sinsii.export_spatial", icon="META_BALL")
 
 
 class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
@@ -706,50 +704,6 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
                     create_empty(mesh, radius, "aura", (0, 0, -radius), "PLAIN_AXES")
         else:
             self.report({"WARNING"}, "Select the mesh before generating buffs")
-
-        return {"FINISHED"}
-
-
-class SINSII_OT_Export_Spatial_Information(bpy.types.Operator, ExportHelper):
-    bl_idname = "sinsii.export_spatial"
-    bl_label = "Export spatials"
-
-    filename_ext = ".unit"
-    filter_glob: bpy.props.StringProperty(default="*.unit", options={"HIDDEN"})
-
-    @classmethod
-    def poll(cls, context):
-        return context.mode == "OBJECT"
-
-    def execute(self, context):
-        mesh = get_selected_mesh()
-
-        if not mesh or not mesh.type == "MESH":
-            self.report({"WARNING"}, "You need to select a mesh before exporting")
-            return {"CANCELLED"}
-
-        radius, extents, center = get_bounding_box(mesh=mesh)
-
-        try:
-            with open(self.filepath, "r+") as f:
-                unit_contents = json.load(f)
-                if "spatial" in unit_contents:
-                    unit_contents["spatial"] = {
-                        "radius": radius,
-                        "box": {"center": tuple((center)), "extents": tuple((extents))},
-                        "collision_rank": 1,
-                    }
-                    f.seek(0)
-                    f.write(json.dumps(unit_contents, indent=4))
-                    f.truncate()
-                else:
-                    self.report(
-                        {"ERROR"}, "Cannot locate spatial object, try creating it"
-                    )
-                    return {"CANCELLED"}
-        except Exception as e:
-            self.report({"ERROR"}, f"Spatial export failed: {e}")
-            return {"CANCELLED"}
 
         return {"FINISHED"}
 
@@ -1049,7 +1003,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
 
     name_indices = {}
     for i, meshpoint in enumerate(meshpoints):
-        name = meshpoint["name"]
+        name = meshpoint["name"].replace("\x00", "")
         pos = meshpoint["position"]
         rot = meshpoint["rotation"]
 
@@ -1350,9 +1304,9 @@ def sanitize_mesh_binary(reader, export_dir, mesh_name, mesh):
         new_name = re.sub("\\b\-\d+\\b", "", meshpoint.name).encode("utf-8")
 
         start = 4 + name_length_offset
-        end = start + len(new_name)
+        end = start + name_length
 
-        new_buffer[start:end] = pack(f"{len(new_name)}s", new_name)
+        new_buffer[start:end] = pack(f"{len(meshpoint.name)}s", new_name)
         curr_offset += 4 + name_length + 50
 
     curr_mat_offset = reader.materials_offset_start
@@ -1456,7 +1410,8 @@ def load_texture(node, texture):
             node.image = bpy.data.images.load(tmp_texture_path)
         node.image = bpy.data.images[tex_file]
     except:
-        node.image = bpy.data.images.load(os.path.join(CWD_PATH, "texture_error.png"))
+        if node.label == "_clr":
+            node.image = bpy.data.images.load(os.path.join(CWD_PATH, "texture_error.png"))
 
     if node.image and node.label != "_clr":
         node.image.colorspace_settings.name = "Non-Color"
@@ -1476,7 +1431,7 @@ def load_mesh_material(name, filepath, textures_path):
                 )
                 for tex_map in ["clr", "orm", "msk", "nrm"]
             ]
-        return ["", "", "", ""]
+        return [None, None, None, None]
 
     contents = json.load(open(mesh_material, "r"))
     return [
@@ -1486,7 +1441,7 @@ def load_mesh_material(name, filepath, textures_path):
                 re.sub(r"(.*?)(\.dds)?$", r"\1", contents.get(key)) + ".dds",
             )
             if contents.get(key)
-            else " "
+            else None
         )
         for key in [
             "base_color_texture",
@@ -1721,14 +1676,19 @@ def create_shader_nodes(material_name, mesh_materials_path, textures_path):
     links.new(multiply_node_2.outputs["Value"], subtract_node_2.inputs["Value"])
     links.new(square_root_node.outputs["Value"], combine_xyz_node_2.inputs["Z"])
     links.new(combine_xyz_node_2.outputs["Vector"], normal_map_node.inputs["Color"])
-    links.new(normal_map_node.outputs["Normal"], principled_node.inputs["Normal"])
     links.new(separate_color_node_3.outputs["Red"], combine_xyz_node_2.inputs["X"])
-    links.new(clamp_node.outputs["Result"], principled_node.inputs["Roughness"])
     links.new(separate_color_node_3.outputs["Green"], multiply_node_2.inputs["Value"])
     links.new(color_invert_node.outputs["Color"], clamp_node_2.inputs["Value"])
     links.new(clamp_node_2.outputs["Result"], square_root_node.inputs["Value"])
     links.new(separate_color_node.outputs["Blue"], color_ramp.inputs["Fac"])
-    links.new(color_ramp.outputs["Color"], principled_node.inputs["Metallic"])
+
+    if textures[1]:
+        links.new(clamp_node.outputs["Result"], principled_node.inputs["Roughness"])
+        links.new(color_ramp.outputs["Color"], principled_node.inputs["Metallic"])
+
+    if textures[3]:
+        links.new(normal_map_node.outputs["Normal"], principled_node.inputs["Normal"])
+
     links.new(color_ramp_2.outputs["Color"], mix_node_2.inputs["A"])
     links.new(separate_color_node_3.outputs["Green"], multiply_node.inputs["Value"])
     links.new(color_ramp_3.outputs["Color"], mix_node_1.inputs["A"])
@@ -1759,7 +1719,6 @@ classes = (
     SINSII_OT_Sync_Empty_Color,
     SINSII_OT_Spawn_Meshpoint,
     SINSII_OT_Spawn_Shield_Mesh,
-    SINSII_OT_Export_Spatial_Information,
     SINSII_PT_Panel,
     SINSII_OT_Pick_HDRI,
     SINSII_OT_Render_Perspective,
