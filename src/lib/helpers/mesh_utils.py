@@ -8,7 +8,7 @@ from ....constants import (
     TEXCONV_EXE,
 )
 from .filesystem import normalize, rename
-from .mesh import MeshMaterial
+from .mesh import MeshMaterial, ShieldEffect
 import bpy, os, json, re, subprocess
 
 
@@ -113,16 +113,28 @@ def create_and_move_mesh_materials(file_path, mesh):
         # skip unused material
         material_name = f"{material}.mesh_material"
         mesh_materials_dir = normalize(file_path, "../mesh_materials")
+        effects_dir = normalize(file_path, "../effects")
         mesh_material = os.path.join(mesh_materials_dir, material_name)
         if os.path.exists(mesh_material):
             continue
+
         with open(os.path.join(file_path, material_name), "w") as f:
-            mesh_material = MeshMaterial(
-                clr=f"{material}_clr",
-                nrm=f"{material}_nrm",
-                msk=f"{material}_msk",
-                orm=f"{material}_orm",
-            ).json()
+            if mesh.name.endswith("_shield"):
+                mesh_material = MeshMaterial().json()
+                # create the shield_effect entity and place it to the effects folder if exists
+                shield_effect_name = mesh.name.replace('_shield', '')
+                shield_effect = ShieldEffect(shield_effect_name).json()
+                if not os.path.exists(effects_dir):
+                    continue
+                with open(os.path.join(effects_dir, f"{shield_effect_name}.shield_effect"), "w") as o:
+                    o.write(json.dumps(shield_effect, indent=4))
+            else:
+                mesh_material = MeshMaterial(
+                    clr=f"{material}_clr",
+                    nrm=f"{material}_nrm",
+                    msk=f"{material}_msk",
+                    orm=f"{material}_orm",
+                ).json()
             f.write(json.dumps(mesh_material, indent=4))
             f.close()
         dest = mesh_materials_dir if os.path.exists(mesh_materials_dir) else file_path
