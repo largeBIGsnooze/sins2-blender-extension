@@ -2,7 +2,6 @@ import bpy, json, os, math, subprocess, re, shutil, time, bmesh, sys
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
-from .src.lib.helpers.mesh import MeshMaterial
 from . import bl_info, TEMP_TEXTURES_PATH
 from .src.lib.github_downloader import Github
 from .src.lib.binary_reader import BinaryReader
@@ -880,6 +879,9 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
             bpy.ops.object.shade_smooth()
 
             shield = bpy.context.active_object
+            shield.modifiers.new(name="shield_sub", type="SUBSURF")
+            bpy.ops.object.modifier_apply(modifier="shield_sub")
+
             shield.name = f"{mesh.name}_shield"
             new_mat = bpy.data.materials.new(name=f"{mesh.name}_shield")
             shield.data.materials.append(new_mat)
@@ -888,32 +890,6 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         # purge_orphans()
 
         return {"FINISHED"}
-
-
-# delete and force blender to recalculate edge connections to fix CTD on bad polygons
-def sanitize_degenerate_polygons(obj, faces):
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="DESELECT")
-
-    bm_edit = bmesh.from_edit_mesh(obj.data)
-    bm_edit.faces.ensure_lookup_table()
-
-    for i in faces:
-        bm_edit.faces[i].select = True
-
-    bpy.ops.mesh.separate(type="SELECTED")
-    bpy.ops.object.mode_set(mode="OBJECT")
-
-    degenerate_obj = next(
-        (
-            _obj
-            for _obj in bpy.data.objects
-            if _obj.type == "MESH" and _obj.name.startswith(f"{obj.name}.001")
-        ),
-        None,
-    )
-    bpy.data.objects.remove(degenerate_obj, do_unlink=True)
 
 
 def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
@@ -962,16 +938,14 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
     bm = bmesh.new()
     bm.from_mesh(mesh)
 
-    degenerate_faces = []
     for face in bm.faces:
         if face.calc_area() <= 1e-99:
-            degenerate_faces.append(face.index)
+            bm.faces.remove(face)
             continue
         for loop in face.loops:
             loop[bm.loops.layers.uv["uv0"]].uv = uv_coords["uv0"][loop.vert.index]
             if uv_coords["uv1"]:
                 loop[bm.loops.layers.uv["uv1"]].uv = uv_coords["uv1"][loop.vert.index]
-
     bm.to_mesh(mesh)
     bm.free()
 
@@ -993,7 +967,8 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
         count = primitive["vertex_index_count"]
         end = start + count
         for i in range(start // 3, end // 3):
-            mesh.polygons[i].material_index = mat_idx
+            if i < len(mesh.polygons):
+                mesh.polygons[i].material_index = mat_idx
 
     mesh.update()
     mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
@@ -1028,9 +1003,6 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
                 )
             ).to_4x4()
         ).to_euler()
-
-    if len(degenerate_faces) > 0:
-        sanitize_degenerate_polygons(obj, degenerate_faces)
 
     flip_normals(obj)
 
