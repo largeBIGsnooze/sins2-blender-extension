@@ -1212,8 +1212,8 @@ def export_mesh(self, mesh_name, export_dir):
         )
         return
 
-    if not mesh_name:
-        self.report({"ERROR"}, "Invalid mesh name")
+    if not re.match(r"^[a-zA-Z0-9 _-]+$", mesh_name):
+        self.report({"ERROR"}, "Invalid mesh name. Avoid special characters.")
         return
 
     bpy.ops.object.mode_set(mode="EDIT")
