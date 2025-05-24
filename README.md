@@ -5,6 +5,11 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 
 <img src="./blender_splash.png"></img>
 
+<hr>
+<video controls>
+<source src="https://i.imgur.com/tmxPjsN.mp4" type="video/mp4">
+</video>
+
 ## Features
 - Automatically corrects blender to game coordinates (Y-up, Z-forward)
 - Import/Export to `*.mesh` (Rebellion meshes are supported)
