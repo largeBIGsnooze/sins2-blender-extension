@@ -6,7 +6,8 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 <img src="./blender_splash.png"></img>
 
 <hr>
-[![Export Demo](https://img.youtube.com/vi/kQg3tkNn-eI/sddefault.jpg)](https://youtu.be/kQg3tkNn-eI)
+
+[![Export Demo](https://img.youtube.com/vi/kQg3tkNn-eI/sddefault.jpg)](https://www.youtube.com/watch?v=kQg3tkNn-eI)
 
 ## Features
 - Automatically corrects blender to game coordinates (Y-up, Z-forward)
