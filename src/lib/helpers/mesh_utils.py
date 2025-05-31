@@ -12,6 +12,13 @@ from .mesh import MeshMaterial, ShieldEffect
 import bpy, os, json, re, subprocess
 
 
+class MeshException(Exception):
+    def __init__(self, kind, message):
+        super().__init__()
+        self.kind = kind
+        self.message = message
+
+
 def get_bounding_box(mesh):
     def calculate_center(l):
         return (max(l) + min(l)) / 2 if l else 0
@@ -122,11 +129,14 @@ def create_and_move_mesh_materials(file_path, mesh):
             if mesh.name.endswith("_shield"):
                 mesh_material = MeshMaterial().json()
                 # create the shield_effect entity and place it to the effects folder if exists
-                shield_effect_name = mesh.name.replace('_shield', '')
+                shield_effect_name = mesh.name.replace("_shield", "")
                 shield_effect = ShieldEffect(shield_effect_name).json()
                 if not os.path.exists(effects_dir):
                     continue
-                with open(os.path.join(effects_dir, f"{shield_effect_name}.shield_effect"), "w") as o:
+                with open(
+                    os.path.join(effects_dir, f"{shield_effect_name}.shield_effect"),
+                    "w",
+                ) as o:
                     o.write(json.dumps(shield_effect, indent=4))
             else:
                 mesh_material = MeshMaterial(
@@ -206,6 +216,15 @@ def convert_rebellion_mesh(file_path, dest_path, mode):
         f.writelines(lines)
 
 
+def clear_leftovers(export_dir):
+    for leftover in os.listdir(export_dir):
+        if any(e for e in [".mesh_material", ".bin", ".gltf"] if leftover.endswith(e)):
+            try:
+                os.remove(os.path.join(export_dir, leftover))
+            except:
+                raise Exception(f"Could not remove: {leftover}")
+
+
 def run_meshbuilder(file_path, dest_path):
     try:
         args = [
@@ -224,16 +243,16 @@ def run_meshbuilder(file_path, dest_path):
                     meshpoint = re.sub(
                         r"Unexpected\smesh\spoint\sname\s\:\s\'(.*)\'", r"\1", text
                     )
-                    return "mesh_point", meshpoint
+                    raise MeshException("mesh_point", meshpoint)
                 elif re.search(r"Attribute\snot\sfound\s\:\sTEXCOORD_\d", text):
-                    raise NotImplementedError("The mesh is missing UV Coordinates.")
+                    raise MeshException("ERROR", "The mesh is missing UV Coordinates.")
                 elif re.search(r"No\smeshes\sfound\.", text):
-                    raise NotImplementedError(text)
+                    raise MeshException("ERROR", text)
                 print(text)
-        return None, None
     except subprocess.CalledProcessError as e:
         if not str(e.stderr).strip().endswith("not found"):
-            return None, e.stderr
+            clear_leftovers(dest_path)
+        print(e)
 
 
 def run_texconv(texture, temp_dir):

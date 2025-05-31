@@ -17,9 +17,10 @@ from .src.lib.helpers.mesh_utils import (
     create_and_move_mesh_materials,
     restore_mesh_transforms,
     join_meshes,
-    purge_orphans,
     make_meshpoint_rules,
     run_meshbuilder,
+    clear_leftovers,
+    MeshException,
     run_texconv,
     convert_rebellion_mesh,
 )
@@ -494,21 +495,26 @@ class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
         meshpoints = get_selected_meshes(type="EMPTY")
         mesh_props = context.scene.mesh_properties
 
-        def meshpoint_format(name, idx):
+        def meshpoint_format(name, i, first):
             return (
-                f"{name}.0-{i}"
+                f"{name}.{first}-{i}"
                 if mesh_props.duplicate_meshpoint_toggle
                 else f"{name}.{i}"
             )
 
+        first_meshpoint = re.search(r"\.(\d+)(?=-|$)", meshpoints[0].name)
+        first = int(first_meshpoint[1]) if first_meshpoint else 0
+
         for _ in range(2):
-            for i, meshpoint in enumerate(meshpoints):
+            for i, meshpoint in enumerate(meshpoints, start=first):
                 name = (
                     mesh_props.meshpoint_name
                     if mesh_props.meshpoint_type == "custom"
                     else mesh_props.meshpoint_type
                 )
-                meshpoint.name = re.sub(r"\.\d{3}", "", meshpoint_format(name, i))
+
+                meshpoint.name = re.sub(r"\.\d{3}$", "", meshpoint_format(name, i, first))
+
         return {"FINISHED"}
 
 
@@ -663,11 +669,17 @@ class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
             text=f"Version: {'.'.join(map(str, bl_info['version']))} {'- up to date' if not has_update else '- new version avaliable.'}"
         )
         col.separator(factor=1.0)
-        col.operator(
+        row = self.layout.row(align=True)
+        row.operator(
             "sinsii.updates",
             icon="URL",
             text="Check for updates" if not has_update else "Update now",
         )
+        row.operator(
+            "wm.url_open",
+            icon="PRESET_NEW",
+            text="Create an Issue"
+        ).url = "https://github.com/largeBIGsnooze/sins2-blender-extension/issues/new"
 
 
 class SINSII_OT_Generate_Buffs(bpy.types.Operator):
@@ -849,15 +861,6 @@ def get_selected_mesh():
         return selected_objects[0]
 
 
-def clear_leftovers(export_dir, mesh_name):
-    for leftover in os.listdir(export_dir):
-        if any(e for e in [".mesh_material", ".bin", ".gltf"] if leftover.endswith(e)):
-            try:
-                os.remove(os.path.join(export_dir, leftover))
-            except:
-                raise Exception(f"Could not remove: {leftover}")
-
-
 class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
     bl_idname = "sinsii.spawn_shield"
     bl_label = "Spawn shield mesh"
@@ -953,7 +956,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
     for material in materials:
         if not os.path.exists(mesh_materials_path):
             new_mat = bpy.data.materials.new(name=material)
-        elif mesh_materials_path == REBELLION_PATH:
+        if mesh_materials_path == REBELLION_PATH:
             new_mat = create_rebellion_shader_nodes(
                 material, mesh_materials_path, textures_path
             )
@@ -1059,27 +1062,25 @@ def import_mesh(self, file_path):
             malformed_meshpoints = []
 
             while True:
-                kind, meshbuilder_err = run_meshbuilder(
-                    file_path=dest, dest_path=REBELLION_PATH
-                )
-                if not meshbuilder_err:
-                    os.remove(dest)
+                try:
+                    run_meshbuilder(
+                        file_path=dest, dest_path=REBELLION_PATH
+                    )
                     break
-
-                if meshbuilder_err:
-                    if kind == "mesh_point":
+                except MeshException as e:
+                    if e.kind == "mesh_point":
                         with open(dest, "r+") as f:
                             lines = f.readlines()
                             for i, line in enumerate(lines):
-                                if re.search(rf'.*"{meshbuilder_err}"', line):
+                                if re.search(rf'.*"{e.message}"', line):
                                     print(
-                                        f"invalid mesh point: '{meshbuilder_err}', renaming..."
+                                        f"invalid mesh point: '{e.message}', renaming..."
                                     )
                                     lines[i] = line.replace(
-                                        meshbuilder_err,
-                                        f"Flair-{meshbuilder_err}-remove_flair_prefix",
+                                        e.message,
+                                        f"Flair-{e.message}-remove_flair_prefix",
                                     )
-                                    malformed_meshpoints.append(meshbuilder_err)
+                                    malformed_meshpoints.append(e.message)
                                     break
                             f.seek(0)
                             f.truncate()
@@ -1087,7 +1088,9 @@ def import_mesh(self, file_path):
 
                         convert_rebellion_mesh(dest, dest, "txt")
                     else:
-                        raise ValueError(meshbuilder_err)
+                        raise ValueError(e.message)
+
+            os.remove(dest)
 
             reader = BinaryReader.initialize_from(
                 mesh_file=os.path.join(REBELLION_PATH, f"{basename(file_path)}.mesh")
@@ -1191,30 +1194,26 @@ def export_mesh(self, mesh_name, export_dir):
     original_transforms_arr = []
 
     if not get_selected_meshes():
-        self.report({"WARNING"}, f"You need to select a mesh before exporting")
-        return
+        raise MeshException("WARNING", "You need to select a mesh before exporting")
 
     mesh = get_selected_mesh()
 
     invalid_meshpoints = make_meshpoint_rules(mesh)
     if invalid_meshpoints:
-        self.report(
-            {"ERROR"},
+        raise MeshException(
+            "ERROR",
             f'Invalid meshpoints: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
         )
-        return
 
     materials = get_materials(mesh)
     if type(materials) is str:
-        self.report(
-            {"ERROR"},
+        raise MeshException(
+            "ERROR",
             'Cannot export "{0}" without any materials'.format(materials),
         )
-        return
 
     if not re.match(r"^[a-zA-Z0-9 _-]+$", mesh_name):
-        self.report({"ERROR"}, "Invalid mesh name. Avoid special characters.")
-        return
+        raise MeshException("ERROR", "Invalid mesh name. Avoid special characters.")
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.separate(type="MATERIAL")
@@ -1239,22 +1238,18 @@ def export_mesh(self, mesh_name, export_dir):
     export_gltf_document(full_mesh_path)
     restore_mesh_transforms(original_transforms_arr, meshes)
 
-    _, meshbuilder_err = run_meshbuilder(
+    run_meshbuilder(
         file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
     )
+    clear_leftovers(export_dir)
 
     mesh = join_meshes(meshes)
-
-    if meshbuilder_err:
-        clear_leftovers(export_dir, mesh_name)
-    else:
-        print(meshbuilder_err)
 
     reader = BinaryReader.initialize_from(
         mesh_file=os.path.join(export_dir, f"{mesh_name}.mesh")
     )
     sanitize_mesh_binary(reader, export_dir, mesh_name, mesh)
-    post_export_operations(export_dir, mesh_name, mesh)
+    create_and_move_mesh_materials(export_dir, mesh)
 
     self.report(
         {"INFO"},
@@ -1305,11 +1300,6 @@ def sanitize_mesh_binary(reader, export_dir, mesh_name, mesh):
         f.write(new_buffer)
 
 
-def post_export_operations(export_dir, mesh_name, mesh):
-    clear_leftovers(export_dir, mesh_name)
-    create_and_move_mesh_materials(export_dir, mesh)
-
-
 class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
     bl_idname = "sinsii.export_mesh"
     bl_label = "Export mesh"
@@ -1337,8 +1327,11 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
 
         try:
             export_mesh(self, MESH_NAME, EXPORT_DIR)
+        except MeshException as e:
+            self.report({e.kind}, f"Could not export the model: {e.message}")
+            return {"CANCELLED"}
         except Exception as e:
-            self.report({"ERROR"}, f"Could not export the model: {e}")
+            self.report({"ERROR"}, str(e))
             return {"CANCELLED"}
 
         # purge_orphans()

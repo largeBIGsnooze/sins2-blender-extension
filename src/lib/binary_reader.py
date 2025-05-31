@@ -1,10 +1,5 @@
-from struct import pack, unpack
-import json, os, shutil, re
+from struct import unpack
 from .helpers.mesh import Meshpoint, Primitive, Vertex
-from .helpers.mesh_utils import run_meshbuilder, convert_rebellion_mesh
-from .helpers.filesystem import basename, normalize
-from ...constants import TEMP_TEXTURES_PATH
-
 
 class BinaryReader:
     def __init__(self):
