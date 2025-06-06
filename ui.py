@@ -876,19 +876,16 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         if mesh:
             radius = get_bounding_box(mesh)[0]
 
-            bpy.ops.mesh.primitive_uv_sphere_add(
-                segments=32, radius=radius, align="WORLD", location=mesh.location
-            )
-            bpy.ops.object.shade_smooth()
+            bpy.ops.wm.obj_import(filepath="./good_topology_shield_sample.obj")
 
-            shield = bpy.context.active_object
-            shield.modifiers.new(name="shield_sub", type="SUBSURF")
-            bpy.ops.object.modifier_apply(modifier="shield_sub")
+            shield_mesh = get_selected_mesh()
+            shield_mesh.data.materials.clear()
 
-            shield.name = f"{mesh.name}_shield"
+            shield_mesh.scale *= radius / (max(shield_mesh.dimensions) / 2)
+
+            shield_mesh.name = f"{mesh.name}_shield"
             new_mat = bpy.data.materials.new(name=f"{mesh.name}_shield")
-            shield.data.materials.append(new_mat)
-            shield.select_set(False)
+            shield_mesh.data.materials.append(new_mat)
 
         # purge_orphans()
 
