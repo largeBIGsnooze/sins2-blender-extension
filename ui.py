@@ -876,7 +876,7 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         if mesh:
             radius = get_bounding_box(mesh)[0]
 
-            bpy.ops.wm.obj_import(filepath="./good_topology_shield_sample.obj")
+            bpy.ops.wm.obj_import(filepath=os.path.join(CWD_PATH, "good_topology_shield_sample.obj"))
 
             shield_mesh = get_selected_mesh()
             shield_mesh.data.materials.clear()

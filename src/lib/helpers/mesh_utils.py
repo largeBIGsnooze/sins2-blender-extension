@@ -130,7 +130,7 @@ def create_and_move_mesh_materials(file_path, mesh):
                 mesh_material = MeshMaterial().json()
                 # create the shield_effect entity and place it to the effects folder if exists
                 shield_effect_name = mesh.name.replace("_shield", "")
-                shield_effect = ShieldEffect(shield_effect_name).json()
+                shield_effect = ShieldEffect(mesh.name).json()
                 if not os.path.exists(effects_dir):
                     continue
                 with open(
