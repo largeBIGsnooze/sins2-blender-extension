@@ -28,11 +28,11 @@ class Github:
 
     def fetch_latest_release_objects(self, get_content=True):
         url = f"{self.api}/releases"
-        response = json.loads(self.request(url).decode("utf-8"))[0]
-        self.hash = response["assets"][0]["digest"].split("sha256:")[1]
+        response = json.loads(self.request(url).decode("utf-8"))[0]["assets"][0]
+        self.hash = response["digest"].split("sha256:")[1]
         return {
             "sha256": self.hash,
-            "content": self.request(response["zipball_url"]) if get_content else None,
+            "content": self.request(response["browser_download_url"]) if get_content else None,
         }
 
     def fetch_latest_archive(self):
