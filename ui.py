@@ -2,10 +2,10 @@ import bpy, json, os, math, subprocess, re, shutil, time, bmesh, sys
 from struct import unpack, pack
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 from mathutils import Vector, Matrix
-from . import bl_info, TEMP_TEXTURES_PATH
+from . import bl_info
+from .constants import TEMP_TEXTURES_PATH
 from .src.lib.github_downloader import Github
 from .src.lib.binary_reader import BinaryReader
-from .src.lib.helpers.cryptography import generate_hash_from_directory
 from .config import AddonSettings
 from .src.lib.helpers.mesh_utils import (
     get_bounding_box,
@@ -48,7 +48,7 @@ def is_debugging():
 # check for updates when extension activates
 if not is_debugging():
     try:
-        latest_version = github.fetch_latest_commit()
+        latest_version = github.fetch_latest_release_objects(get_content=False)["sha256"]
     except:
         latest_version = None
 else:
@@ -659,21 +659,21 @@ class SINSII_OT_Sync_Empty_Color(bpy.types.Operator):
 
 
 class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Help" if not has_update else "Help - ℹ Update Available ℹ"
+    bl_label = "Help - ℹ Update Available ℹ" if has_update else "Help"
     bl_options = {"DEFAULT_CLOSED"}
     bl_order = 5
 
     def draw(self, context):
         col = self.layout.column(align=True)
         col.label(
-            text=f"Version: {'.'.join(map(str, bl_info['version']))} {'- up to date' if not has_update else '- new version avaliable.'}"
+            text=f"Version: {'.'.join(map(str, bl_info['version']))} {'- new version avaliable.' if has_update else '- up to date'}"
         )
         col.separator(factor=1.0)
         row = self.layout.row(align=True)
         row.operator(
             "sinsii.updates",
             icon="URL",
-            text="Check for updates" if not has_update else "Update now",
+            text="Update now" if has_update else "Check for updates",
         )
         row.operator(
             "wm.url_open",
@@ -751,22 +751,6 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def get_file_list(directory):
-    files = []
-    for dirpath, dirname, filenames in os.walk(directory):
-        if ".git" in dirpath:
-            continue
-        for name in dirname:
-            if ".git" in name or "__pycache__" in name:
-                continue
-            files.append(os.path.relpath(os.path.join(dirpath, name), directory))
-        for name in filenames:
-            if "pyc" in name:
-                continue
-            files.append(os.path.relpath(os.path.join(dirpath, name), directory))
-    return files
-
-
 class SINSII_OT_Debug(bpy.types.Operator):
     bl_idname = "sinsii.debug"
     bl_label = "Debug"
@@ -787,41 +771,32 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
         temp_path = github.temp
         github.fetch_latest_archive()
 
-        current_files = set(get_file_list(CWD_PATH))
-        temp_files = set(get_file_list(temp_path))
-
-        for file in current_files.difference(temp_files):
-            file_path = os.path.join(CWD_PATH, file)
-            if os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-            else:
-                os.remove(file_path)
-
-        curr_hash = generate_hash_from_directory(
-            directory=CWD_PATH, file_list=get_file_list(CWD_PATH)
-        )
-
-        repo_hash = generate_hash_from_directory(
-            directory=temp_path, file_list=get_file_list(temp_path)
-        )
-
-        if curr_hash == repo_hash:
+        if SETTINGS["current_version"] == github.hash:
             shutil.rmtree(temp_path)
             self.report({"INFO"}, "No updates found.")
         else:
+            # clear the previous version files
+            for file in os.listdir(CWD_PATH):
+                file_path = os.path.join(CWD_PATH, file)
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+                else:
+                    os.remove(file_path)
+
             os.makedirs(os.path.join(CWD_PATH, "src"), exist_ok=True)
             for file in os.listdir(temp_path):
-                if os.path.isdir(os.path.join(temp_path, file)):
+                temp_file_path = os.path.join(temp_path, file)
+                if os.path.isdir(temp_file_path):
                     shutil.copytree(
-                        os.path.join(temp_path, file),
+                        temp_file_path,
                         os.path.join(CWD_PATH, "src"),
                         dirs_exist_ok=True,
                     )
                 else:
-                    shutil.copy(os.path.join(temp_path, file), CWD_PATH)
+                    shutil.copy(temp_file_path, CWD_PATH)
             shutil.rmtree(temp_path)
 
-            SETTINGS["current_version"] = latest_version
+            SETTINGS["current_version"] = github.hash
             settings.save_settings()
 
             self.report(
@@ -1102,9 +1077,6 @@ def import_mesh(self, file_path):
         if bpy.context.space_data.shading.type != "MATERIAL":
             bpy.context.space_data.shading.type = "MATERIAL"
             bpy.context.space_data.shading.use_compositor = "ALWAYS"
-
-        if (4, 2, 0) <= bpy.app.version:
-            create_composite_nodes()
 
     except Exception as e:
         self.report({"ERROR"}, f"Mesh import failed: {e}")
@@ -1412,24 +1384,6 @@ def load_mesh_material(name, filepath, textures_path):
             "normal_texture",
         ]
     ]
-
-
-def create_composite_nodes():
-    bpy.context.scene.use_nodes = True
-    node_tree = bpy.context.scene.node_tree
-    scene = bpy.data.scenes["Scene"]
-
-    if not "Glare" in scene.node_tree.nodes:
-        bloom_node = node_tree.nodes.new(type="CompositorNodeGlare")
-        bloom_node.glare_type = "BLOOM"
-        bloom_node.threshold = 75
-        bloom_node.quality = "HIGH"
-
-        composite_node = scene.node_tree.nodes["Composite"]
-        render_layers = scene.node_tree.nodes["Render Layers"]
-
-        node_tree.links.new(bloom_node.outputs["Image"], composite_node.inputs["Image"])
-        node_tree.links.new(render_layers.outputs["Image"], bloom_node.inputs["Image"])
 
 
 def create_rebellion_shader_nodes(material_name, mesh_materials_path, textures_path):
