@@ -14,29 +14,35 @@ class Github:
         self.repo = "sins2-blender-extension"
         self.api = f"https://api.github.com/repos/{self.author}/{self.repo}"
         self.temp = os.path.join(self.dist, "sins2_extension-temp")
+        self.hash = None
 
-    def fetch_latest_commit(self):
-        url = f"{self.api}/commits"
+    def request(self, url):
+        response = urlopen(url)
         try:
-            response = urlopen(url)
             if response.getcode() == 200:
-                first_commit = json.loads(response.read())[0]["sha"]
-                return first_commit
+                response = response.read()
+            return response
         except Exception as e:
-            print(f"Github.fetch_commits() failed Github API request: {e}")
+            print(f"Github.request() failed request: {e}")
+        return None
+
+    def fetch_latest_release_objects(self, get_content=True):
+        url = f"{self.api}/releases"
+        response = json.loads(self.request(url).decode("utf-8"))[0]
+        self.hash = response["assets"][0]["digest"].split("sha256:")[1]
+        return {
+            "sha256": self.hash,
+            "content": self.request(response["zipball_url"]) if get_content else None,
+        }
 
     def fetch_latest_archive(self):
         zip_file = os.path.join(self.dist, "master.zip")
-        url = f"{self.api}/zipball"
-        try:
-            response = urlopen(url)
-            os.makedirs(self.temp, exist_ok=True)
-            if response.getcode() == 200:
-                with open(zip_file, "wb") as f:
-                    f.write(response.read())
-                self.extract(zip_file)
-        except Exception as e:
-            print(f"Github.fetch_latest_archive() failed archive request: {e}")
+        os.makedirs(self.temp, exist_ok=True)
+        release = self.fetch_latest_release_objects()
+
+        with open(zip_file, "wb") as f:
+            f.write(release["content"])
+        self.extract(zip_file)
 
     def extract(self, zip_file):
         with zipfile.ZipFile(zip_file, "r") as z:
