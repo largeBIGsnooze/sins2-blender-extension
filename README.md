@@ -1,7 +1,11 @@
-## Blender Extension - Sins of a Solar Empire 2
+<h2>Blender Extension - Sins of a Solar Empire 2
+
+<img src="https://img.shields.io/github/downloads/largeBIGsnooze/sins2-blender-extension/total?labelColor=blue&color=green">
+</h2>
 
 
 Makes the modding workflow cozier, with various QoL features to simplify ship rigging along with helpful documentation in the side panel
+
 
 <img src="./blender_splash.png"></img>
 
@@ -9,7 +13,7 @@ Makes the modding workflow cozier, with various QoL features to simplify ship ri
 
 [![Export Demo](https://img.youtube.com/vi/kQg3tkNn-eI/sddefault.jpg)](https://www.youtube.com/watch?v=kQg3tkNn-eI)
 
-### [Export Demo](https://www.youtube.com/watch?v=kQg3tkNn-eI)
+### [Export Demo](https://www.youtube.com/watch?v=kQg3tkNn-eI)>
 
 ## Features
 - Automatically corrects blender to game coordinates (Y-up, Z-forward)
