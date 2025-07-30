@@ -31,12 +31,8 @@ from .constants import (
     CWD_PATH,
     ADDON_SETTINGS_FILE,
     GAME_MATRIX,
-    MESHBUILDER_EXE,
     MESHPOINT_COLOR,
-    MESHPOINT_MATRIX,
-    MESHPOINTING_RULES,
     TEMP_DIR,
-    TEXCONV_EXE,
     REBELLION_PATH,
 )
 
@@ -57,12 +53,12 @@ else:
 settings = AddonSettings(ADDON_SETTINGS_FILE)
 settings.init()
 
-SETTINGS = settings.load_settings()
+SETTINGS = settings.load()
 
 if "is_first_installation" in SETTINGS:
     SETTINGS["current_version"] = latest_version
     del SETTINGS["is_first_installation"]
-    settings.save_settings()
+    settings.save()
 
 has_update = False if is_debugging() else SETTINGS["current_version"] != latest_version
 
@@ -105,7 +101,7 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
             for theme in bpy.context.preferences.themes:
                 if tuple(theme.view_3d.empty) != MESHPOINT_COLOR:
                     SETTINGS["has_synchronized_meshpoint_color"] = False
-                    settings.save_settings()
+                    settings.save()
                     break
 
         box.prop(context.scene.mesh_properties, "toggle_teamcolor")
@@ -654,7 +650,7 @@ class SINSII_OT_Sync_Empty_Color(bpy.types.Operator):
         for theme in bpy.context.preferences.themes:
             theme.view_3d.empty = MESHPOINT_COLOR
         SETTINGS["has_synchronized_meshpoint_color"] = True
-        settings.save_settings()
+        settings.save()
         return {"FINISHED"}
 
 
@@ -797,7 +793,7 @@ class SINSII_OT_Check_For_Updates(bpy.types.Operator):
             shutil.rmtree(temp_path)
 
             SETTINGS["current_version"] = github.hash
-            settings.save_settings()
+            settings.save()
 
             self.report(
                 {"INFO"},
@@ -1167,11 +1163,11 @@ def export_mesh(self, mesh_name, export_dir):
 
     mesh = get_selected_mesh()
 
-    invalid_meshpoints = make_meshpoint_rules(mesh)
+    invalid_meshpoints = make_meshpoint_rules(mesh, rules=SETTINGS["meshpoint_rules"])
     if invalid_meshpoints:
         raise MeshException(
             "ERROR",
-            f'Invalid meshpoints: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
+            f'Invalid meshpoint names: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
         )
 
     materials = get_materials(mesh)

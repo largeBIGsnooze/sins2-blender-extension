@@ -2,7 +2,6 @@ from mathutils import Vector
 from ....constants import (
     GAME_MATRIX,
     MESHPOINT_MATRIX,
-    MESHPOINTING_RULES,
     MESHBUILDER_EXE,
     REBELLION_MESHBUILDER_EXE,
     TEXCONV_EXE,
@@ -184,14 +183,14 @@ def purge_orphans():
     bpy.ops.outliner.orphans_purge()
 
 
-def make_meshpoint_rules(mesh):
+def make_meshpoint_rules(mesh, rules):
     invalid_meshpoints = []
 
     for meshpoint in mesh.children:
         name = meshpoint.name
         is_matched = False
 
-        for key, regex in MESHPOINTING_RULES.items():
+        for regex in rules.values():
             if re.match(regex, name):
                 is_matched = True
                 break
