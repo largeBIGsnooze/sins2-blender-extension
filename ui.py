@@ -244,6 +244,27 @@ class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
         row.operator("sinsii.add_render_scene", icon="ADD", text="Add Camera")
 
 
+class SINSII_OT_Create_Decal(bpy.types.Operator):
+    bl_idname = "sinsii.create_decal"
+    bl_label = "Create Decal"
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "OBJECT"
+
+    def execute(self, context):
+        bpy.ops.mesh.primitive_plane_add()
+        decal = bpy.context.object
+        decal.name = "Decal"
+        decal.modifiers.new(name="Subdivide_Decal", type="SUBSURF")
+        bpy.context.object.modifiers["Subdivide_Decal"].subdivision_type = "SIMPLE"
+        bpy.context.object.modifiers["Subdivide_Decal"].levels = 2
+        bpy.ops.object.modifier_apply(modifier="Subdivide_Decal")
+        decal.modifiers.new(name="SWD", type="SHRINKWRAP")
+        bpy.context.object.modifiers["SWD"].wrap_method = "PROJECT"
+
+        return {"FINISHED"}
+
 class SINSII_OT_Load_Default_Template(bpy.types.Operator):
     bl_idname = "sinsii.load_default_template"
     bl_label = "Load Default Template"
@@ -472,6 +493,7 @@ class SINSII_PT_Mesh_Panel(SINSII_Main_Panel, bpy.types.Panel):
             col.label(text="Select a mesh...")
         else:
             col.label(text=f"Selected: {mesh.name}")
+            col.operator("sinsii.create_decal", icon="FILE_CACHE", text="Spawn Decal")
             col.operator("sinsii.spawn_shield", icon="MESH_CIRCLE")
             col.operator(
                 "sinsii.create_buffs", icon="EMPTY_SINGLE_ARROW", text="Generate Buffs"
@@ -533,6 +555,10 @@ class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
         col.prop(context.scene.mesh_properties, "duplicate_meshpoint_toggle")
         col.separator(factor=1.0)
         col.label(text=f"Selected meshpoints: {len(get_selected_meshes(type='EMPTY'))}")
+        col.separator(factor=1.0)
+        col.operator("sinsii.mirror_meshpoint")
+        col.separator(factor=1.0)
+        col.operator("sinsii.origin_to_meshpoint")
 
 
 class SINSII_PT_Meshpoint_Turret(SINSII_Main_Panel, bpy.types.Panel):
@@ -715,6 +741,50 @@ class SINSII_OT_Generate_Buffs(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# courtesy of @b3bomber67 from Sins 2 Discord
+class SINSII_OT_Origin_To_Meshpoint(bpy.types.Operator):
+    bl_idname = "sinsii.origin_to_meshpoint"
+    bl_label = "Mesh Center to Meshpoint"
+
+    def execute(self, context):
+        for obj in bpy.context.selected_objects:
+            empty = bpy.data.objects.new("child." + obj.name, None)
+            empty.matrix_world = obj.matrix_world.copy()
+            empty.empty_display_type = 'ARROWS'
+            empty.empty_display_size = 15
+            empty.rotation_euler.rotate_axis('X', math.radians(90))
+            bpy.context.scene.collection.objects.link(empty)
+        return {'FINISHED'}
+
+# courtesy of @b3bomber67 from Sins 2 Discord
+class SINSII_OT_Mirror_Meshpoint(bpy.types.Operator):
+    bl_idname = "sinsii.mirror_meshpoint"
+    bl_label = "Mirror Meshpoint"
+
+    def execute(self, context):
+        for obj in bpy.context.selected_objects:
+            new_obj = obj.copy()
+
+            if obj.type == 'MESH':
+                new_obj.data = obj.data.copy()
+            elif obj.type == 'EMPTY':
+                new_obj.data = None
+
+            bpy.context.scene.collection.objects.link(new_obj)
+
+            loc = obj.location.copy()
+            new_obj.location = Vector((-loc.x, loc.y, loc.z))
+
+            rot_matrix = obj.matrix_world.to_3x3()
+            mirror_mat = Matrix(((1, 0, 0),
+                                (0, -1, 0),
+                                (0, 0, 1)))
+            mirrored_rot = mirror_mat @ rot_matrix
+
+            new_obj.rotation_euler = mirrored_rot.to_euler(new_obj.rotation_mode)
+
+        return {'FINISHED'}
+
 class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
     bl_idname = "sinsii.spawn_meshpoint"
     bl_label = "Spawn meshpoint"
@@ -725,6 +795,7 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
             self.report({"WARNING"}, "Make sure you are in edit mode")
             return {"CANCELLED"}
         mesh = get_selected_mesh()
+
         if not mesh:
             self.report({"WARNING"}, "Please select a mesh first")
             return {"CANCELLED"}
@@ -733,15 +804,36 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         bpy.ops.object.editmode_toggle()
 
         radius = get_bounding_box(mesh)[0]
-        bpy.ops.view3d.snap_cursor_to_selected()
-        bpy.ops.object.editmode_toggle()
-        create_empty(
-            mesh=mesh,
-            radius=radius / 2,
-            name=context.scene.mesh_properties.meshpoint_name,
-            empty_type="ARROWS",
-            location=bpy.context.scene.cursor.location,
-        )
+        if bpy.context.tool_settings.mesh_select_mode[0]:
+            meshpoint_vert_pos = []
+            bm = bmesh.from_edit_mesh(mesh.data)
+            bm.verts.ensure_lookup_table()
+
+            for vert in bm.verts:
+                if vert.select:
+                    meshpoint_vert_pos.append(vert.co)
+                    vert.select = False
+            bmesh.update_edit_mesh(mesh.data)
+
+            bpy.ops.object.editmode_toggle()
+            for meshpoint_loc in meshpoint_vert_pos:
+                create_empty(
+                    mesh=mesh,
+                    radius=radius / 2,
+                    name=context.scene.mesh_properties.meshpoint_name,
+                    empty_type="ARROWS",
+                    location=meshpoint_loc,
+                )
+        else:
+            bpy.ops.view3d.snap_cursor_to_selected()
+            bpy.ops.object.editmode_toggle()
+            create_empty(
+                mesh=mesh,
+                radius=radius / 2,
+                name=context.scene.mesh_properties.meshpoint_name,
+                empty_type="ARROWS",
+                location=bpy.context.scene.cursor.location,
+            )
         bpy.ops.view3d.snap_cursor_to_center()
 
         return {"FINISHED"}
@@ -818,6 +910,14 @@ def get_active_material():
         return mesh.active_material
 
 
+def get_scene_meshes():
+    meshes = []
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH":
+            meshes.append(obj)
+    return meshes
+
+
 def get_selected_meshes(type="MESH"):
     selected_meshes = []
     for mesh in bpy.context.selected_objects:
@@ -825,6 +925,8 @@ def get_selected_meshes(type="MESH"):
             selected_meshes.append(mesh)
     return selected_meshes
 
+def get_all_meshes(export_scene):
+    return get_scene_meshes() if export_scene else get_selected_meshes()
 
 def get_selected_mesh():
     selected_objects = bpy.context.selected_objects
@@ -1141,30 +1243,21 @@ def sanitize_mesh_name(mesh_name):
     return mesh_name
 
 
-def export_gltf_document(file_path):
+def export_gltf_document(file_path, export_scene):
     bpy.ops.export_scene.gltf(
         filepath=file_path,
         export_format="GLTF_SEPARATE",
         export_yup=False,
-        use_selection=True,
+        use_selection=export_scene,
         export_apply=False,
         export_image_format="NONE",
     )
     sanitize_gltf_document(file_path)
 
 
-def export_mesh(self, mesh_name, export_dir):
-    now = time.time()
-
-    original_transforms_arr = []
-
-    if not get_selected_meshes():
-        raise MeshException("WARNING", "You need to select a mesh before exporting")
-
-    mesh = get_selected_mesh()
-
+def validate_meshes(mesh, skip_meshpoint_validation=False):
     invalid_meshpoints = make_meshpoint_rules(mesh, rules=SETTINGS["meshpoint_rules"])
-    if invalid_meshpoints:
+    if invalid_meshpoints and not skip_meshpoint_validation:
         raise MeshException(
             "ERROR",
             f'Invalid meshpoint names: [ {", ".join(meshpoint for meshpoint in invalid_meshpoints)} ]',
@@ -1177,43 +1270,52 @@ def export_mesh(self, mesh_name, export_dir):
             'Cannot export "{0}" without any materials'.format(materials),
         )
 
+
+def export(self, mesh_name, export_dir):
+    now = time.time()
+    original_transforms_arr = []
+
     if not re.match(r"^[a-zA-Z0-9 _-]+$", mesh_name):
         raise MeshException("ERROR", "Invalid mesh name. Avoid special characters.")
 
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.separate(type="MATERIAL")
-    bpy.ops.object.mode_set(mode="OBJECT")
-    meshes = get_selected_meshes()
-
-    for mesh in meshes:
-        apply_transforms(mesh)
-        original_transform, original_meshpoint_transforms = get_original_transforms(
-            mesh
-        )
-        original_transforms_arr.append(
-            (original_transform, original_meshpoint_transforms)
-        )
-        for meshpoint in mesh.children:
-            meshpoint.select_set(True)
+    if not self.export_scene:
+        mesh = get_selected_mesh()
+        if not mesh:
+            raise MeshException("WARNING", "You need to select a mesh before exporting")
+        validate_meshes(mesh, self.skip_meshpoint_validation)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.separate(type="MATERIAL")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        meshes = export_mesh(original_transforms_arr)
+    else:
+        meshes = get_scene_meshes()
+        for mesh in meshes:
+            validate_meshes(mesh, self.skip_meshpoint_validation)
+            bpy.context.view_layer.objects.active = mesh
+            materials = get_materials(mesh)
+            if len(materials) > 1:
+                bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.mesh.separate(type="MATERIAL")
+                bpy.ops.object.mode_set(mode="OBJECT")
+        meshes = export_scene(original_transforms_arr)
 
     mesh_name = sanitize_mesh_name(mesh_name)
 
     full_mesh_path = os.path.join(export_dir, mesh_name)
-
-    export_gltf_document(full_mesh_path)
+    export_gltf_document(full_mesh_path, not self.export_scene)
     restore_mesh_transforms(original_transforms_arr, meshes)
+
+    mesh = join_meshes(meshes)
 
     run_meshbuilder(
         file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
     )
     clear_leftovers(export_dir)
 
-    mesh = join_meshes(meshes)
-
     reader = BinaryReader.initialize_from(
         mesh_file=os.path.join(export_dir, f"{mesh_name}.mesh")
     )
-    sanitize_mesh_binary(reader, export_dir, mesh_name, mesh)
+    sanitize_mesh_binary(reader, export_dir, mesh_name, get_all_meshes(self.export_scene))
     create_and_move_mesh_materials(export_dir, mesh)
 
     self.report(
@@ -1224,44 +1326,92 @@ def export_mesh(self, mesh_name, export_dir):
     )
 
 
-def sanitize_mesh_binary(reader, export_dir, mesh_name, mesh):
+def export_scene(original_transforms_arr):
+    meshes = get_scene_meshes()
+
+    for mesh in meshes:
+        mesh.select_set(True)
+        bpy.context.view_layer.objects.active = mesh
+        apply_transforms(mesh)
+
+        original_transform, original_meshpoint_transforms = get_original_transforms(
+            mesh
+        )
+        original_transforms_arr.append(
+            (original_transform, original_meshpoint_transforms)
+        )
+
+        for meshpoint in mesh.children:
+            meshpoint.select_set(True)
+
+        bpy.ops.object.select_all(action="DESELECT")
+
+    return meshes
+
+def export_mesh(original_transforms_arr):
+    meshes = get_selected_meshes()
+
+    for mesh in meshes:
+        apply_transforms(mesh)
+
+        original_transform, original_meshpoint_transforms = get_original_transforms(
+            mesh
+        )
+        original_transforms_arr.append(
+            (original_transform, original_meshpoint_transforms)
+        )
+
+        for meshpoint in mesh.children:
+            meshpoint.select_set(True)
+
+    return meshes
+
+
+def sanitize_mesh_binary(reader, export_dir, mesh_name, meshes):
     curr_offset = reader.meshpoint_offset_start
-    new_buffer = bytearray(reader.buffer)
-    for meshpoint in mesh.children:
-        if meshpoint.hide_get():
-            continue
-        name_length_offset = curr_offset
-        name_length = reader.u32_at_offset(name_length_offset)
-
-        new_name = re.sub("\\b\-\d+\\b", "", meshpoint.name).encode("utf-8")
-
-        start = 4 + name_length_offset
-        end = start + name_length
-
-        new_buffer[start:end] = pack(f"{len(meshpoint.name)}s", new_name)
-        curr_offset += 4 + name_length + 50
-
     curr_mat_offset = reader.materials_offset_start
-    buffer_end = len(new_buffer)
+    new_buffer = bytearray(reader.buffer)
 
-    material_bytes = bytearray(new_buffer[:curr_mat_offset])
+    for mesh in meshes:
+        for meshpoint in mesh.children:
+            if meshpoint.hide_get():
+                continue
+
+            name_length = reader.u32_at_offset(curr_offset)
+            new_name = re.sub(r"\b-\d+\b", "", meshpoint.name).encode("utf-8")
+
+            start = 4 + curr_offset
+            end = start + name_length
+            new_buffer[start:end] = pack(f"{len(meshpoint.name)}s", new_name)
+
+            curr_offset += 4 + name_length + 50
+
+    buffer_end = len(new_buffer)
+    material_bytes = bytearray(new_buffer[:reader.materials_offset_start])
+    mats_sorted = []
+    unique_mats = set()
+
+    for mesh in meshes:
+        for mat in get_avaliable_sorted_materials(mesh):
+            if mat not in unique_mats:
+                unique_mats.add(mat)
+                mats_sorted.append(mat)
 
     # consume prefixes
-    for material in get_avaliable_sorted_materials(mesh):
-        mat_length_offset = curr_mat_offset
-        old_name_length = reader.u32_at_offset(mat_length_offset)
+    for material in mats_sorted:
+        old_name_length = reader.u32_at_offset(curr_mat_offset)
 
         material_name = material.encode("utf-8")
-
         material_bytes.extend(pack("I", len(material_name)))
         material_bytes.extend(material_name)
 
         curr_mat_offset += 4 + old_name_length
-    material_bytes.extend(new_buffer[curr_mat_offset:buffer_end])
 
+    material_bytes.extend(new_buffer[curr_mat_offset:buffer_end])
     new_buffer = material_bytes
 
-    with open(os.path.join(export_dir, f"{mesh_name}.mesh"), "wb") as f:
+    file_path = os.path.join(export_dir, f"{mesh_name}.mesh")
+    with open(file_path, "wb") as f:
         f.write(new_buffer)
 
 
@@ -1273,6 +1423,9 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
     filename_ext = ""
 
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
+
+    export_scene: bpy.props.BoolProperty(default=False, name="Export as Scene")
+    skip_meshpoint_validation: bpy.props.BoolProperty(default=False, name="Skip Meshpoint Validation", description="Might break the mesh with certain names. Use cautiously.")
 
     def invoke(self, context, event):
         try:
@@ -1291,7 +1444,7 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
         MESH_NAME = __[1].lower().strip()
 
         try:
-            export_mesh(self, MESH_NAME, EXPORT_DIR)
+            export(self, MESH_NAME, EXPORT_DIR)
         except MeshException as e:
             self.report({e.kind}, f"Could not export the model: {e.message}")
             return {"CANCELLED"}
@@ -1626,6 +1779,7 @@ classes = (
     SINSII_OT_Import_Mesh,
     SINSII_OT_Export_Mesh,
     SINSII_OT_Generate_Buffs,
+    SINSII_OT_Create_Decal,
     SINSII_OT_Check_For_Updates,
     SINSII_OT_Debug,
     SINSII_OT_Sync_Empty_Color,
@@ -1643,6 +1797,8 @@ classes = (
     SINSII_PT_Render_Panel,
     SINSII_OT_Format_Meshpoints,
     SINSII_PT_Mesh_Point_Panel,
+    SINSII_OT_Mirror_Meshpoint,
+    SINSII_OT_Origin_To_Meshpoint,
     SINSII_PT_Mesh_Panel,
     SINSII_PT_Documentation_Panel,
     SINSII_PT_Meshpoint_Documentation,

@@ -25,9 +25,7 @@ def get_bounding_box(mesh):
     if mesh:
         mesh_box = [GAME_MATRIX @ Vector(axis) for axis in mesh.bound_box]
 
-        bounds = [
-            coord for vector in mesh_box for coord in (vector.x, vector.y, vector.z)
-        ]
+        bounds = [coord for vector in mesh_box for coord in (vector.x, vector.y, vector.z)]
 
         bounds_x = bounds[::3]
         bounds_y = bounds[1::3]
@@ -106,9 +104,7 @@ def get_materials(mesh):
 def get_avaliable_sorted_materials(mesh):
     materials = get_materials(mesh)
     unused_mats = get_unused_materials(mesh, materials)
-    return sorted(
-        material for material in set(materials) if material not in unused_mats
-    )
+    return sorted(material for material in set(materials) if material not in unused_mats)
 
 
 def create_and_move_mesh_materials(file_path, mesh):
@@ -171,12 +167,32 @@ def get_original_transforms(mesh):
 
 
 def join_meshes(meshes):
-    bpy.ops.object.select_all(action="DESELECT")
-    for mesh in sorted(meshes, key=lambda mesh: mesh.name.lower()):
-        mesh.select_set(True)
-    if len(meshes) > 1:
+    mesh_groups = {}
+    for mesh in meshes:
+        base = re.sub(r"\.\d+$", "", mesh.name)
+        mesh_groups.setdefault(base, []).append(mesh)
+
+    output = []
+    last_parent = None
+
+    for base, meshes in mesh_groups.items():
+        if len(meshes) == 1:
+            output.append(meshes[0])
+            last_parent = meshes[0]
+            continue
+
+        parent = next((mesh for mesh in meshes if mesh.name == base), meshes[0])
+        last_parent = parent
+        bpy.ops.object.select_all(action="DESELECT")
+
+        for mesh in meshes:
+            mesh.select_set(True)
+
+        bpy.context.view_layer.objects.active = parent
         bpy.ops.object.join()
-    return bpy.context.view_layer.objects.active
+        output.append(parent)
+
+    return last_parent
 
 
 def purge_orphans():
@@ -239,9 +255,7 @@ def run_meshbuilder(file_path, dest_path):
                 text = line.strip()
 
                 if re.search(r"Unexpected\smesh\spoint\sname", text):
-                    meshpoint = re.sub(
-                        r"Unexpected\smesh\spoint\sname\s\:\s\'(.*)\'", r"\1", text
-                    )
+                    meshpoint = re.sub(r"Unexpected\smesh\spoint\sname\s\:\s\'(.*)\'", r"\1", text)
                     raise MeshException("mesh_point", meshpoint)
                 elif re.search(r"Attribute\snot\sfound\s\:\sTEXCOORD_\d", text):
                     raise MeshException("ERROR", "The mesh is missing UV Coordinates.")
@@ -255,6 +269,4 @@ def run_meshbuilder(file_path, dest_path):
 
 
 def run_texconv(texture, temp_dir):
-    subprocess.run(
-        [TEXCONV_EXE, "-m", "1", "-y", "-f", "BC7_UNORM", "-r", texture, "-o", temp_dir]
-    )
+    subprocess.run([TEXCONV_EXE, "-m", "1", "-y", "-f", "BC7_UNORM", "-r", texture, "-o", temp_dir])

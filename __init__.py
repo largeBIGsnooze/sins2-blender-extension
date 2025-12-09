@@ -2,13 +2,14 @@ bl_info = {
     "name": "Sins II Extension",
     "description": "Extension for importing and exporting Sins of a Solar Empire 2 meshes whilst leveraging official tooling",
     "author": "Tyloth, Cyno Studios",
-    "version": (1, 3, 6),
+    "version": (1, 3, 7),
     "blender": (4, 1, 0),
     "location": "3D View",
     "category": "Import-Export",
 }
 
 import bpy, os
+
 
 def register():
     from .src import properties
