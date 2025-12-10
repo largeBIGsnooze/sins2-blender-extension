@@ -1398,7 +1398,7 @@ def sanitize_mesh_binary(reader, export_dir, mesh_name, meshes):
                 mats_sorted.append(mat)
 
     # consume prefixes
-    for material in mats_sorted:
+    for material in sorted(mats_sorted):
         old_name_length = reader.u32_at_offset(curr_mat_offset)
 
         material_name = material.encode("utf-8")
