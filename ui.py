@@ -44,11 +44,9 @@ def is_debugging():
 # check for updates when extension activates
 if not is_debugging():
     try:
-        latest_version = github.fetch_latest_release_objects(get_content=False)["sha256"]
+        github.fetch_latest_downloadable_release_data()
     except:
-        latest_version = None
-else:
-    latest_version = None
+        pass
 
 settings = AddonSettings(ADDON_SETTINGS_FILE)
 settings.init()
@@ -56,11 +54,11 @@ settings.init()
 SETTINGS = settings.load()
 
 if "is_first_installation" in SETTINGS:
-    SETTINGS["current_version"] = latest_version
+    SETTINGS["current_version"] = github.hash
     del SETTINGS["is_first_installation"]
     settings.save()
 
-has_update = False if is_debugging() else SETTINGS["current_version"] != latest_version
+has_update = False if is_debugging() else SETTINGS["current_version"] != github.hash
 
 
 class SINSII_Main_Panel:
@@ -70,18 +68,13 @@ class SINSII_Main_Panel:
     bl_category = "Sins II Extension"
 
 
-class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
-    bl_label = "Import/Export"
-    bl_order = 1
+class SINSII_PT_Mesh_Color_Panel(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "Team Colors"
+    bl_options = {"DEFAULT_CLOSED"}
+    bl_parent_id = "SINSII_PT_Panel"
 
     def draw(self, context):
-        row = self.layout.row(align=True)
-        row.operator("sinsii.export_mesh", icon="EXPORT", text="Export mesh")
-        row.separator(factor=0.5)
-        row.operator("sinsii.import_mesh", icon="IMPORT", text="Import mesh")
         col = self.layout.column(align=True)
-        # col.separator(factor=1.0)
-        # col.operator("sinsii.debug")
         box = col.box()
         if context.scene.mesh_properties.toggle_teamcolor:
             box.label(text="Primary, Secondary, Emissive")
@@ -93,18 +86,19 @@ class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
             box.label(text="Emissive")
             box.prop(context.scene.mesh_properties, "team_color_3")
 
-        if SETTINGS["has_synchronized_meshpoint_color"] == False:
-            col = col.column()
-            col.separator(factor=1.0)
-            col.operator("sinsii.sync_color", text="Synchronize Meshpoint Color")
-        else:
-            for theme in bpy.context.preferences.themes:
-                if tuple(theme.view_3d.empty) != MESHPOINT_COLOR:
-                    SETTINGS["has_synchronized_meshpoint_color"] = False
-                    settings.save()
-                    break
-
         box.prop(context.scene.mesh_properties, "toggle_teamcolor")
+
+class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
+    bl_label = "Import/Export"
+    bl_order = 1
+
+    def draw(self, context):
+        row = self.layout.row(align=True)
+        row.operator("sinsii.export_mesh", icon="EXPORT", text="Export mesh")
+        row.separator(factor=0.5)
+        row.operator("sinsii.import_mesh", icon="IMPORT", text="Import mesh")
+        # col.separator(factor=1.0)
+        # col.operator("sinsii.debug")
 
 
 class SINSII_PT_Render_Panel(SINSII_Main_Panel, bpy.types.Panel):
@@ -543,6 +537,16 @@ class SINSII_PT_Mesh_Point_Panel(SINSII_Main_Panel, bpy.types.Panel):
 
     def draw(self, context):
         col = self.layout.column(align=True)
+
+        if SETTINGS["has_synchronized_meshpoint_color"] == False:
+            col.operator("sinsii.sync_color", text="Synchronize Meshpoint Color")
+        else:
+            for theme in bpy.context.preferences.themes:
+                if tuple(theme.view_3d.empty) != MESHPOINT_COLOR:
+                    SETTINGS["has_synchronized_meshpoint_color"] = False
+                    settings.save()
+                    break
+
         col.label(text="Name")
         row = col.row()
         row.prop(context.scene.mesh_properties, "meshpoint_name")
@@ -702,6 +706,12 @@ class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
             icon="PRESET_NEW",
             text="Create an Issue"
         ).url = "https://github.com/largeBIGsnooze/sins2-blender-extension/issues/new"
+        if has_update:
+            col = self.layout.column()
+            col.label(text="Changelog:")
+            box = col.box()
+            for line in github.body.split("\n"):
+                box.label(text=line)
 
 
 class SINSII_OT_Generate_Buffs(bpy.types.Operator):
@@ -1561,6 +1571,7 @@ def create_rebellion_shader_nodes(material_name, mesh_materials_path, textures_p
 
     return material
 
+
 def create_composite_nodes(name="Sins 2 - Compositor Nodes"):
     try:
         if not name in bpy.data.node_groups:
@@ -1824,6 +1835,7 @@ classes = (
     SINSII_PT_Render_Panel,
     SINSII_OT_Format_Meshpoints,
     SINSII_PT_Mesh_Point_Panel,
+    SINSII_PT_Mesh_Color_Panel,
     SINSII_OT_Mirror_Meshpoint,
     SINSII_OT_Origin_To_Meshpoint,
     SINSII_PT_Mesh_Panel,
