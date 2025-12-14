@@ -1176,6 +1176,9 @@ def import_mesh(self, file_path):
             bpy.context.space_data.shading.type = "MATERIAL"
             bpy.context.space_data.shading.use_compositor = "ALWAYS"
 
+        if (5, 0, 0) <= bpy.app.version:
+            create_composite_nodes()
+
     except Exception as e:
         self.report({"ERROR"}, f"Mesh import failed: {e}")
         return {"CANCELLED"}
@@ -1557,6 +1560,30 @@ def create_rebellion_shader_nodes(material_name, mesh_materials_path, textures_p
     links.new(_clr.outputs["Color"], principled_node.inputs["Base Color"])
 
     return material
+
+def create_composite_nodes(name="Sins 2 - Compositor Nodes"):
+    try:
+        if not name in bpy.data.node_groups:
+            bpy.ops.node.new_compositing_node_group(name=name)
+
+        comp = bpy.data.node_groups[name]
+        bpy.context.scene.compositing_node_group = comp
+
+        if not "Glare" in comp.nodes:
+            bloom_node = comp.nodes.new(type="CompositorNodeGlare")
+
+            viewer = comp.nodes["Viewer"]
+            render_layers = comp.nodes["Render Layers"]
+
+            bloom_node.inputs["Strength"].default_value = 0.250
+            bloom_node.inputs["Type"].default_value = "Bloom"
+            bloom_node.inputs["Quality"].default_value = "High"
+            bloom_node.inputs["Clamp"].default_value = True
+
+            comp.links.new(bloom_node.outputs["Image"], viewer.inputs["Image"])
+            comp.links.new(render_layers.outputs["Image"], bloom_node.inputs["Image"])
+    except:
+        pass
 
 
 def create_shader_nodes(material_name, mesh_materials_path, textures_path):
