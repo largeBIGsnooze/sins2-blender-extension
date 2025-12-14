@@ -1,11 +1,8 @@
-import bpy, json
+import bpy, json, re
 from typing import List, Dict, Any
 
 DEFAULT_TEMPLATE = {
-    "global_settings": {
-        "icon_zoom": 3.45,
-        "hdri_path": ""
-    },
+    "global_settings": {"icon_zoom": 3.45, "hdri_path": ""},
     "cameras": [
         {
             "filename_suffix": "tooltip_picture",
@@ -74,16 +71,26 @@ def camera_property_update(self, context):
             context.scene.mesh_properties.camera_template = "CUSTOM"
 
 
-def meshpoint_name(self, context):
-    if self.meshpoint_name != context.scene.mesh_properties.meshpoint_type:
-        context.scene.mesh_properties.meshpoint_type = "custom"
+def meshpoint_name(scene, deps):
+    try:
+        meshpoint = bpy.context.selected_objects[0]
+        if meshpoint.type != "EMPTY":
+            return
 
+        formatted_name = re.search(r"(.*)(\.\d+)", meshpoint.name)
+        if formatted_name:
+            name = formatted_name.group(1)
+        else:
+            name = meshpoint.name
+
+        if meshpoint and scene.mesh_properties.meshpoint_name != name:
+            scene.mesh_properties.meshpoint_name = name
+    except:
+        pass
 
 def meshpoint_type(self, context):
     if context.scene.mesh_properties.meshpoint_type != "custom":
-        context.scene.mesh_properties.meshpoint_name = (
-            context.scene.mesh_properties.meshpoint_type
-        )
+        context.scene.mesh_properties.meshpoint_name = context.scene.mesh_properties.meshpoint_type
 
 
 class CameraProperties(bpy.types.PropertyGroup):
@@ -400,9 +407,7 @@ class Properties(bpy.types.PropertyGroup):
         name="", default="REPLACE_ME", maxlen=100, update=meshpoint_name
     )
 
-    duplicate_meshpoint_toggle: bpy.props.BoolProperty(
-        name="Duplicate meshpoints", default=False
-    )
+    duplicate_meshpoint_toggle: bpy.props.BoolProperty(name="Duplicate meshpoints", default=False)
 
     toggle_teamcolor: bpy.props.BoolProperty(name="Enable Team Color", default=True)
 
@@ -451,6 +456,7 @@ def register():
     bpy.types.Scene.mesh_properties = bpy.props.PointerProperty(type=Properties)
 
     # Register the handler
+    bpy.app.handlers.depsgraph_update_post.append(meshpoint_name)
     bpy.app.handlers.load_post.append(initialize_default_cameras)
 
 
@@ -473,6 +479,8 @@ def unregister():
     # Remove the handler first
     if initialize_default_cameras in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(initialize_default_cameras)
+    if meshpoint_name in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(meshpoint_name)
 
     # Then unregister classes
     del bpy.types.Scene.mesh_properties
