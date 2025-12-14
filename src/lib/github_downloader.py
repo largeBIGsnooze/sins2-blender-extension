@@ -15,6 +15,7 @@ class Github:
         self.api = f"https://api.github.com/repos/{self.author}/{self.repo}"
         self.temp = os.path.join(self.dist, "sins2_extension-temp")
         self.hash = None
+        self.body = ""
 
     def request(self, url):
         response = urlopen(url)
@@ -26,22 +27,21 @@ class Github:
             print(f"Github.request() failed request: {e}")
         return None
 
-    def fetch_latest_release_objects(self, get_content=True):
+    def fetch_latest_downloadable_release_data(self):
         url = f"{self.api}/releases"
-        response = json.loads(self.request(url).decode("utf-8"))[0]["assets"][0]
-        self.hash = response["digest"].split("sha256:")[1]
-        return {
-            "sha256": self.hash,
-            "content": self.request(response["browser_download_url"]) if get_content else None,
-        }
+        response = json.loads(self.request(url).decode("utf-8"))[0]
+        assets = response["assets"][0]
+        self.body = response["body"]
+        self.hash = assets["digest"].split("sha256:")[1]
+        return assets["browser_download_url"]
 
     def fetch_latest_archive(self):
         zip_file = os.path.join(self.dist, "master.zip")
         os.makedirs(self.temp, exist_ok=True)
-        release = self.fetch_latest_release_objects()
+        release = self.request(self.fetch_latest_downloadable_release_data())
 
         with open(zip_file, "wb") as f:
-            f.write(release["content"])
+            f.write(release)
         self.extract(zip_file)
 
     def extract(self, zip_file):
