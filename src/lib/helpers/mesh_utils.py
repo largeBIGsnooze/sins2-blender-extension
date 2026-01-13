@@ -259,7 +259,10 @@ def run_meshbuilder(file_path, dest_path):
                     raise MeshException("mesh_point", meshpoint)
                 elif re.search(r"Attribute\snot\sfound\s\:\sTEXCOORD_\d", text):
                     raise MeshException("ERROR", "The mesh is missing UV Coordinates.")
-                elif re.search(r"Skinned\smeshes\snot\scurrently\ssupported\.|node\shas\sinvalid\smesh_point\sdata\.|No\sscenes\sfound\.|No\smeshes\sfound\.|Primitive\shas\sno\smaterial\.\smesh\=.*", text):
+                elif re.search(
+                    r"Skinned\smeshes\snot\scurrently\ssupported\.|node\shas\sinvalid\smesh_point\sdata\.|No\sscenes\sfound\.|No\smeshes\sfound\.|Primitive\shas\sno\smaterial\.\smesh\=.*",
+                    text,
+                ):
                     raise MeshException("ERROR", text)
                 print(text)
     except subprocess.CalledProcessError as e:

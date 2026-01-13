@@ -14,9 +14,7 @@ ADDON_SETTINGS_FILE = os.path.join(
 TEMP_TEXTURES_PATH = os.path.join(TEMP_DIR, "sins2-blender-extension.tmp.textures.dir")
 
 CWD_PATH = os.path.dirname(os.path.abspath(__file__))
-MESHBUILDER_EXE = os.path.join(
-    CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe"
-)
+MESHBUILDER_EXE = os.path.join(CWD_PATH, "src", "lib", "tools", "meshbuilder", "meshbuilder.exe")
 REBELLION_PATH = os.path.join(TEMP_TEXTURES_PATH, "rebellion")
 REBELLION_MESHBUILDER_EXE = os.path.join(
     CWD_PATH, "src", "lib", "tools", "sins1_meshbuilder", "sins1_meshbuilder.exe"

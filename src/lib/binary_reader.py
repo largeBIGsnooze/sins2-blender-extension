@@ -1,13 +1,13 @@
 from struct import unpack
 from .helpers.mesh import Meshpoint, Primitive, Vertex
 
+
 class BinaryReader:
     def __init__(self):
         self.offset = 0
         self.buffer = None
         self.mesh_data = {
-            x: []
-            for x in ["vertices", "indices", "primitives", "materials", "meshpoints"]
+            x: [] for x in ["vertices", "indices", "primitives", "materials", "meshpoints"]
         }
 
         self.materials_offset_start = None
@@ -160,9 +160,9 @@ class BinaryReader:
             return 0
 
     def string(self, length):
-        result = unpack(f"{length}s", self.buffer[self.offset : self.offset + length])[
-            0
-        ].decode("utf-8")
+        result = unpack(f"{length}s", self.buffer[self.offset : self.offset + length])[0].decode(
+            "utf-8"
+        )
         self.offset += length
         return result
 

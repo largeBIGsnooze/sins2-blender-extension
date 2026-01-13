@@ -88,6 +88,7 @@ def meshpoint_name(scene, deps):
     except:
         pass
 
+
 def meshpoint_type(self, context):
     if context.scene.mesh_properties.meshpoint_type != "custom":
         context.scene.mesh_properties.meshpoint_name = context.scene.mesh_properties.meshpoint_type

@@ -59,14 +59,10 @@ class RenderManager:
 
         # Create camera with proper name
         camera_name = (
-            camera_settings.filename_suffix
-            if camera_settings.filename_suffix
-            else "Unnamed Camera"
+            camera_settings.filename_suffix if camera_settings.filename_suffix else "Unnamed Camera"
         )
         self.cam_data = bpy.data.cameras.new(name=f"Render_Camera_{camera_name}")
-        self.cam_obj = bpy.data.objects.new(
-            f"Render_Camera_{camera_name}", self.cam_data
-        )
+        self.cam_obj = bpy.data.objects.new(f"Render_Camera_{camera_name}", self.cam_data)
         self.context.scene.collection.objects.link(self.cam_obj)
 
         # Set camera as active
@@ -86,15 +82,9 @@ class RenderManager:
         # Convert spherical to Cartesian coordinates
         # Vertical angle: 0° = horizontal, 90° = up, -90° = down
         # Horizontal angle: 0° = front (-Y), 90° = left (-X), -90° = right (+X)
-        horizontal_distance = distance * math.cos(
-            v_angle
-        )  # Distance projected onto XY plane
-        x = -horizontal_distance * math.sin(
-            h_angle
-        )  # X = -horizontal_distance * sin(h)
-        y = -horizontal_distance * math.cos(
-            h_angle
-        )  # Y = -horizontal_distance * cos(h)
+        horizontal_distance = distance * math.cos(v_angle)  # Distance projected onto XY plane
+        x = -horizontal_distance * math.sin(h_angle)  # X = -horizontal_distance * sin(h)
+        y = -horizontal_distance * math.cos(h_angle)  # Y = -horizontal_distance * cos(h)
         z = distance * math.sin(v_angle)  # Z = distance * sin(v)
 
         print("\n=== Pre-Transform Position ===")
@@ -133,9 +123,7 @@ class RenderManager:
         # Apply final rotation
         self.cam_obj.rotation_euler = final_rot.to_euler()
 
-        print(
-            f"Final Rotation: {[math.degrees(a) for a in self.cam_obj.rotation_euler]}"
-        )
+        print(f"Final Rotation: {[math.degrees(a) for a in self.cam_obj.rotation_euler]}")
 
         # Set camera settings
         self.cam_data.type = camera_settings.type
@@ -166,9 +154,7 @@ class RenderManager:
 
         self.context.scene.render.resolution_x = render_settings.resolution_x
         self.context.scene.render.resolution_y = render_settings.resolution_y
-        self.context.scene.render.film_transparent = (
-            render_settings.transparent == "TRANSPARENT"
-        )
+        self.context.scene.render.film_transparent = render_settings.transparent == "TRANSPARENT"
 
     def setup_hdri(self, hdri_settings, camera_settings):
         """Setup HDRI world lighting with camera ray control"""
@@ -193,9 +179,7 @@ class RenderManager:
             env_tex.image = bpy.data.images.load(hdri_settings.hdri_path)
 
             # Set strengths
-            background_1.inputs["Strength"].default_value = (
-                camera_settings.hdri_strength
-            )
+            background_1.inputs["Strength"].default_value = camera_settings.hdri_strength
             background_2.inputs["Strength"].default_value = 1.0
 
             # Connect nodes
@@ -362,9 +346,7 @@ class RenderManager:
 
         # Scale the distance based on both the radius and lighting_distance setting
         base_distance = bounding_sphere_radius * 2  # Base distance is 2x the radius
-        distance = (
-            base_distance * camera_settings.lighting_distance
-        )  # Apply the multiplier
+        distance = base_distance * camera_settings.lighting_distance  # Apply the multiplier
         center_vec = Vector(center)
         print(f"Bounding Sphere Radius: {bounding_sphere_radius}")
         print(f"Base Light Distance: {base_distance}")
@@ -393,12 +375,8 @@ class RenderManager:
             return obj, light
 
         key_obj, key_light = create_light("Key_Light", camera_settings.key_light_energy)
-        fill_obj, fill_light = create_light(
-            "Fill_Light", camera_settings.fill_light_energy
-        )
-        back_obj, back_light = create_light(
-            "Back_Light", camera_settings.back_light_energy
-        )
+        fill_obj, fill_light = create_light("Fill_Light", camera_settings.fill_light_energy)
+        back_obj, back_light = create_light("Back_Light", camera_settings.back_light_energy)
 
         # Position lights relative to camera using camera's world matrix
         cam_matrix = self.cam_obj.matrix_world
@@ -432,9 +410,7 @@ class RenderManager:
             # Apply camera's rotation influence
             final_rot = self.cam_obj.rotation_euler.to_quaternion() @ rot_quat
             light.rotation_euler = final_rot.to_euler()
-            print(
-                f"{light.name} Rotation: {[math.degrees(a) for a in light.rotation_euler]}"
-            )
+            print(f"{light.name} Rotation: {[math.degrees(a) for a in light.rotation_euler]}")
 
         # Add sun if enabled
         if camera_settings.sun_enabled == "ENABLED":
@@ -502,17 +478,13 @@ class RenderManager:
             obj
             for obj in bpy.data.objects
             if obj.type == "CAMERA"
-            and (
-                obj.name.startswith("Render_Camera")
-                or obj.name.startswith("Top_Down_Camera")
-            )
+            and (obj.name.startswith("Render_Camera") or obj.name.startswith("Top_Down_Camera"))
         ]
 
         camera_data = [
             cam
             for cam in bpy.data.cameras
-            if cam.name.startswith("Render_Camera")
-            or cam.name.startswith("Top_Down_Camera")
+            if cam.name.startswith("Render_Camera") or cam.name.startswith("Top_Down_Camera")
         ]
 
         # Remove camera objects first
@@ -529,9 +501,7 @@ class RenderManager:
                 obj
                 for obj in self.context.scene.objects
                 if obj.type == "LIGHT"
-                and obj.name.startswith(
-                    ("Key_Light", "Fill_Light", "Back_Light", "Sun_Light")
-                )
+                and obj.name.startswith(("Key_Light", "Fill_Light", "Back_Light", "Sun_Light"))
             ]
 
             for obj in light_objects:
@@ -563,10 +533,7 @@ class RenderManager:
         self._restore_world_lighting(self.original_settings["world"])
 
         # Restore cycles samples if needed
-        if (
-            "samples" in self.original_settings
-            and self.context.scene.render.engine == "CYCLES"
-        ):
+        if "samples" in self.original_settings and self.context.scene.render.engine == "CYCLES":
             self.context.scene.cycles.samples = self.original_settings["samples"]
 
         # Force viewport update
@@ -596,9 +563,7 @@ class RenderManager:
 
             # Set output path using suffix with unique filepath
             safe_suffix = "".join(
-                c
-                for c in camera_settings.filename_suffix
-                if c.isalnum() or c in (" ", "-", "_")
+                c for c in camera_settings.filename_suffix if c.isalnum() or c in (" ", "-", "_")
             ).rstrip()
             filename = f"{mesh_name}_{safe_suffix}.png"
             filepath = os.path.join(output_dir, filename)

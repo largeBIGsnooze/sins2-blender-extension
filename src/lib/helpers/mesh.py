@@ -35,9 +35,10 @@ class ShieldEffect:
                 "max_radius": 67.937225,
                 "duration": 2.0,
                 "fps": 32.0,
-                "min_radius": 33.937225
+                "min_radius": 33.937225,
             }
         }
+
 
 class MeshMaterial:
     def __init__(
