@@ -38,8 +38,10 @@ from .constants import (
 
 github = Github(TEMP_DIR)
 
+
 def is_debugging():
     return sys.gettrace() is not None
+
 
 # check for updates when extension activates
 if not is_debugging():
@@ -87,6 +89,7 @@ class SINSII_PT_Mesh_Color_Panel(SINSII_Main_Panel, bpy.types.Panel):
             box.prop(context.scene.mesh_properties, "team_color_3")
 
         box.prop(context.scene.mesh_properties, "toggle_teamcolor")
+
 
 class SINSII_PT_Panel(SINSII_Main_Panel, bpy.types.Panel):
     bl_label = "Import/Export"
@@ -258,6 +261,7 @@ class SINSII_OT_Create_Decal(bpy.types.Operator):
         bpy.context.object.modifiers["SWD"].wrap_method = "PROJECT"
 
         return {"FINISHED"}
+
 
 class SINSII_OT_Load_Default_Template(bpy.types.Operator):
     bl_idname = "sinsii.load_default_template"
@@ -525,7 +529,9 @@ class SINSII_OT_Format_Meshpoints(bpy.types.Operator):
                     else mesh_props.meshpoint_type
                 )
 
-                meshpoint.name = re.sub(r"\.\d{3}$", "", meshpoint_format(name, i, first))
+                meshpoint.name = re.sub(
+                    r"\.\d{3}$", "", meshpoint_format(name, i, first)
+                )
 
         return {"FINISHED"}
 
@@ -701,11 +707,9 @@ class SINSII_PT_Documentation_Panel(SINSII_Main_Panel, bpy.types.Panel):
             icon="URL",
             text="Update now" if has_update else "Check for updates",
         )
-        row.operator(
-            "wm.url_open",
-            icon="PRESET_NEW",
-            text="Create an Issue"
-        ).url = "https://github.com/largeBIGsnooze/sins2-blender-extension/issues/new"
+        row.operator("wm.url_open", icon="PRESET_NEW", text="Create an Issue").url = (
+            "https://github.com/largeBIGsnooze/sins2-blender-extension/issues/new"
+        )
         if has_update:
             col = self.layout.column()
             col.label(text="Changelog:")
@@ -760,11 +764,12 @@ class SINSII_OT_Origin_To_Meshpoint(bpy.types.Operator):
         for obj in bpy.context.selected_objects:
             empty = bpy.data.objects.new("child." + obj.name, None)
             empty.matrix_world = obj.matrix_world.copy()
-            empty.empty_display_type = 'ARROWS'
+            empty.empty_display_type = "ARROWS"
             empty.empty_display_size = 15
-            empty.rotation_euler.rotate_axis('X', math.radians(90))
+            empty.rotation_euler.rotate_axis("X", math.radians(90))
             bpy.context.scene.collection.objects.link(empty)
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 # courtesy of @b3bomber67 from Sins 2 Discord
 class SINSII_OT_Mirror_Meshpoint(bpy.types.Operator):
@@ -775,9 +780,9 @@ class SINSII_OT_Mirror_Meshpoint(bpy.types.Operator):
         for obj in bpy.context.selected_objects:
             new_obj = obj.copy()
 
-            if obj.type == 'MESH':
+            if obj.type == "MESH":
                 new_obj.data = obj.data.copy()
-            elif obj.type == 'EMPTY':
+            elif obj.type == "EMPTY":
                 new_obj.data = None
 
             bpy.context.scene.collection.objects.link(new_obj)
@@ -786,14 +791,13 @@ class SINSII_OT_Mirror_Meshpoint(bpy.types.Operator):
             new_obj.location = Vector((-loc.x, loc.y, loc.z))
 
             rot_matrix = obj.matrix_world.to_3x3()
-            mirror_mat = Matrix(((1, 0, 0),
-                                (0, -1, 0),
-                                (0, 0, 1)))
+            mirror_mat = Matrix(((1, 0, 0), (0, -1, 0), (0, 0, 1)))
             mirrored_rot = mirror_mat @ rot_matrix
 
             new_obj.rotation_euler = mirrored_rot.to_euler(new_obj.rotation_mode)
 
-        return {'FINISHED'}
+        return {"FINISHED"}
+
 
 class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
     bl_idname = "sinsii.spawn_meshpoint"
@@ -814,6 +818,7 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
         bpy.ops.object.editmode_toggle()
 
         radius = get_bounding_box(mesh)[0]
+        name = context.scene.mesh_properties.meshpoint_name
         if bpy.context.tool_settings.mesh_select_mode[0]:
             meshpoint_vert_pos = []
             bm = bmesh.from_edit_mesh(mesh.data)
@@ -830,7 +835,7 @@ class SINSII_OT_Spawn_Meshpoint(bpy.types.Operator):
                 create_empty(
                     mesh=mesh,
                     radius=radius / 2,
-                    name=context.scene.mesh_properties.meshpoint_name,
+                    name=name,
                     empty_type="ARROWS",
                     location=meshpoint_loc,
                 )
@@ -935,8 +940,10 @@ def get_selected_meshes(type="MESH"):
             selected_meshes.append(mesh)
     return selected_meshes
 
+
 def get_all_meshes(export_scene):
     return get_scene_meshes() if export_scene else get_selected_meshes()
+
 
 def get_selected_mesh():
     selected_objects = bpy.context.selected_objects
@@ -959,7 +966,9 @@ class SINSII_OT_Spawn_Shield_Mesh(bpy.types.Operator):
         if mesh:
             radius = get_bounding_box(mesh)[0]
 
-            bpy.ops.wm.obj_import(filepath=os.path.join(CWD_PATH, "good_topology_shield_sample.obj"))
+            bpy.ops.wm.obj_import(
+                filepath=os.path.join(CWD_PATH, "good_topology_shield_sample.obj")
+            )
 
             shield_mesh = get_selected_mesh()
             shield_mesh.data.materials.clear()
@@ -1105,9 +1114,6 @@ def is_rebellion_mesh(file_path):
     with open(file_path, "rb") as f:
         header = f.read(4).decode("utf-8")
         if header.startswith("BIN"):
-            if                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              not "Sins of a Solar Empire Rebellion".lower() in normalize(os.path.dirname(file_path), "../").lower():
-                raise                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 NotImplementedError("Non-vanilla meshes are not supported")
-
             return True
 
     return False
@@ -1143,9 +1149,7 @@ def import_mesh(self, file_path):
 
             while True:
                 try:
-                    run_meshbuilder(
-                        file_path=dest, dest_path=REBELLION_PATH
-                    )
+                    run_meshbuilder(file_path=dest, dest_path=REBELLION_PATH)
                     break
                 except MeshException as e:
                     if e.kind == "mesh_point":
@@ -1320,15 +1324,15 @@ def export(self, mesh_name, export_dir):
 
     mesh = join_meshes(meshes)
 
-    run_meshbuilder(
-        file_path=f"{full_mesh_path}.gltf", dest_path=export_dir
-    )
+    run_meshbuilder(file_path=f"{full_mesh_path}.gltf", dest_path=export_dir)
     clear_leftovers(export_dir)
 
     reader = BinaryReader.initialize_from(
         mesh_file=os.path.join(export_dir, f"{mesh_name}.mesh")
     )
-    sanitize_mesh_binary(reader, export_dir, mesh_name, get_all_meshes(self.export_scene))
+    sanitize_mesh_binary(
+        reader, export_dir, mesh_name, get_all_meshes(self.export_scene)
+    )
     create_and_move_mesh_materials(export_dir, mesh)
 
     self.report(
@@ -1360,6 +1364,7 @@ def export_scene(original_transforms_arr):
         bpy.ops.object.select_all(action="DESELECT")
 
     return meshes
+
 
 def export_mesh(original_transforms_arr):
     meshes = get_selected_meshes()
@@ -1400,7 +1405,7 @@ def sanitize_mesh_binary(reader, export_dir, mesh_name, meshes):
             curr_offset += 4 + name_length + 50
 
     buffer_end = len(new_buffer)
-    material_bytes = bytearray(new_buffer[:reader.materials_offset_start])
+    material_bytes = bytearray(new_buffer[: reader.materials_offset_start])
     mats_sorted = []
     unique_mats = set()
 
@@ -1438,7 +1443,11 @@ class SINSII_OT_Export_Mesh(bpy.types.Operator, ExportHelper):
     filter_glob: bpy.props.StringProperty(default="*.mesh", options={"HIDDEN"})
 
     export_scene: bpy.props.BoolProperty(default=False, name="Export as Scene")
-    skip_meshpoint_validation: bpy.props.BoolProperty(default=False, name="Skip Meshpoint Validation", description="Might break the mesh with certain names. Use cautiously.")
+    skip_meshpoint_validation: bpy.props.BoolProperty(
+        default=False,
+        name="Skip Meshpoint Validation",
+        description="Might break the mesh with certain names. Use cautiously.",
+    )
 
     def invoke(self, context, event):
         try:
@@ -1507,7 +1516,9 @@ def load_texture(node, texture):
         node.image = bpy.data.images[tex_file]
     except:
         if node.label == "_clr":
-            node.image = bpy.data.images.load(os.path.join(CWD_PATH, "texture_error.png"))
+            node.image = bpy.data.images.load(
+                os.path.join(CWD_PATH, "texture_error.png")
+            )
 
     if node.image and node.label != "_clr":
         node.image.colorspace_settings.name = "Non-Color"
