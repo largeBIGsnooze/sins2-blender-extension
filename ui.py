@@ -676,7 +676,6 @@ def flip_normals(mesh):
     except:
         pass
 
-
 class SINSII_OT_Sync_Empty_Color(bpy.types.Operator):
     bl_label = "Synchronize Meshpoint Color"
     bl_description = "Changes Blender Empty color to a cyan-like blue"
@@ -1016,7 +1015,11 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
         mesh.uv_layers.new(name=f"uv{i}")
 
     indices = mesh_data["indices"]
-    loops = [indices[i : i + 3] for i in range(0, len(indices), 3)]
+    loops = []
+    for i in range(0, len(indices), 3):
+        idx0, idx1, idx2 = indices[i : i + 3]
+        if idx0 != idx1 and idx1 != idx2 and idx0 != idx2:
+            loops.append((idx0, idx1, idx2))
 
     mesh.from_pydata(vert_arr, [], loops)
     mesh.update()
@@ -1031,13 +1034,9 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
     bm.from_mesh(mesh)
 
     for face in bm.faces:
-        if face.calc_area() <= 1e-99:
-            bm.faces.remove(face)
-            continue
         for loop in face.loops:
             loop[bm.loops.layers.uv["uv0"]].uv = uv_coords["uv0"][loop.vert.index]
-            if uv_coords["uv1"]:
-                loop[bm.loops.layers.uv["uv1"]].uv = uv_coords["uv1"][loop.vert.index]
+            loop[bm.loops.layers.uv["uv1"]].uv = uv_coords["uv1"][loop.vert.index]
     bm.to_mesh(mesh)
     bm.free()
 
@@ -1067,6 +1066,7 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
     mesh.normals_split_custom_set_from_vertices(normal_arr)
 
     radius = get_bounding_box(obj)[0]
+    flip_normals(obj)
 
     name_indices = {}
     for i, meshpoint in enumerate(meshpoints):
@@ -1095,8 +1095,6 @@ def load_mesh_data(self, mesh_data, mesh_name, mesh, mesh_materials_path):
                 )
             ).to_4x4()
         ).to_euler()
-
-    flip_normals(obj)
 
     # purge_orphans()
 
